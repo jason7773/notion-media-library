@@ -60,6 +60,7 @@ test("mapDemoItems exposes only published, valid demo media", () => {
     },
   }), null);
 });
+
 test("mapAlbum reads expected Notion properties", () => {
   const album = mapAlbum({
     id: "album-id",
@@ -82,6 +83,7 @@ test("mapAlbum reads expected Notion properties", () => {
     coverVersion: null,
   });
 });
+
 test("mapTracks keeps audio blocks in page order and supports external URLs", () => {
   const tracks = mapTracks([
     {
