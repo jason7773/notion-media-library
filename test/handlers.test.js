@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { coverCacheKey, fetchMediaSource, handleDemo } from "../functions/server/handlers.js";
+import { coverCacheKey, fetchMediaSource, handleDemo, handleDemoCover, handleDemoMedia, handleDemoSubtitle } from "../functions/server/handlers.js";
 import { retrievePage } from "../functions/server/notion.js";
 
 function mockResponse() {
@@ -31,6 +31,25 @@ test("demo catalog is disabled without a demo data source", async () => {
     } else {
       process.env.NOTION_DEMO_DATA_SOURCE_ID = previous;
     }
+  }
+});
+
+test("demo asset routes stay unavailable when the demo data source is not configured", async () => {
+  const previous = process.env.NOTION_DEMO_DATA_SOURCE_ID;
+  delete process.env.NOTION_DEMO_DATA_SOURCE_ID;
+  try {
+    for (const handler of [
+      (req, res) => handleDemoMedia(req, res, "page-id"),
+      (req, res) => handleDemoCover(req, res, "page-id"),
+      (req, res) => handleDemoSubtitle(req, res, "page-id", "0"),
+    ]) {
+      const res = mockResponse();
+      await handler({ method: "GET", headers: {}, url: "/api/demo", ip: "198.51.100.40" }, res);
+      assert.equal(res.statusCode, 404);
+    }
+  } finally {
+    if (previous === undefined) delete process.env.NOTION_DEMO_DATA_SOURCE_ID;
+    else process.env.NOTION_DEMO_DATA_SOURCE_ID = previous;
   }
 });
 
