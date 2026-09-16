@@ -2751,7 +2751,8 @@ function DemoLanding({ error, loading, onGoogleLogin, items = [] }) {
           onClick={onGoogleLogin}
           type="button"
         >
-          ?�入完整媒�?�?        </button>
+          登入完整媒體庫
+        </button>
       </header>
 
       <section className="mx-auto grid max-w-7xl gap-8 px-5 pt-10 pb-20 sm:px-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-end lg:pt-20">
@@ -2759,7 +2760,8 @@ function DemoLanding({ error, loading, onGoogleLogin, items = [] }) {
           <p className="text-xs font-extrabold tracking-[0.22em] text-[#bd7458] uppercase">A small legal showcase</p>
           <h1 className="mt-4 max-w-3xl font-serif text-5xl leading-[0.96] text-[#334742] sm:text-7xl">Listen and watch a few selected works.</h1>
           <p className="mt-6 max-w-2xl text-base leading-8 text-[#657973]">
-            ?�裡?��?示已?��??��??��?段。登?��?，�?管�??�核?��?使用?��??��??��??��?人�?體庫??          </p>
+            這裡只展示已取得授權的片段。登入後，經管理員核准的使用者才會看到完整私人媒體庫。
+          </p>
           {error && <p className="mt-5 rounded-2xl border border-[#e6b9a7] bg-[#fff0e7] px-4 py-3 text-sm font-semibold text-[#9a5e4c]">{error}</p>}
           {loading && <p className="mt-5 text-sm font-semibold text-[#71847f]">Loading demo...</p>}
         </div>
@@ -2767,9 +2769,9 @@ function DemoLanding({ error, loading, onGoogleLogin, items = [] }) {
         <div className="rounded-[2rem] border border-[#d8ded8] bg-[#fffdf9] p-6 shadow-[0_20px_54px_rgba(76,89,84,0.08)]">
           <p className="text-[10px] font-extrabold tracking-[0.2em] text-[#70837d] uppercase">How access works</p>
           <div className="mt-5 grid gap-4 text-sm leading-6 text-[#5e746f]">
-            <p><strong className="text-[#334742]">01</strong> ?�接?�放下方?��? Demo 素�???/p>
-            <p><strong className="text-[#334742]">02</strong> ?��?角登?��?系統?��?載入?��?帳�??�用?��?人目?��?/p>
-            <p><strong className="text-[#334742]">03</strong> Demo 不�??��??�放?�度?��??��??��?使用?��??��?/p>
+            <p><strong className="text-[#334742]">01</strong> 直接播放下方公開 Demo 素材。</p>
+            <p><strong className="text-[#334742]">02</strong> 右上角登入，系統只會載入核准帳號可用的私人目錄。</p>
+            <p><strong className="text-[#334742]">03</strong> Demo 不會儲存播放進度、願望清單或使用者資料。</p>
           </div>
         </div>
       </section>
@@ -2789,8 +2791,8 @@ function DemoLanding({ error, loading, onGoogleLogin, items = [] }) {
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#e6c2ae]">Now selected</p>
                 <h3 className="mt-2 truncate font-serif text-2xl">{selectedMusic.title}</h3>
                 {selectedMusic.artist && <p className="mt-1 text-sm text-[#f0d9cc]">{selectedMusic.artist}</p>}
-                {selectedMusic.credit && <p className="mt-2 text-xs text-[#f0d9cc]">素�?：{selectedMusic.credit}</p>}
-                {selectedMusic.sourceUrl && <a className="mt-1 inline-block text-xs text-[#e6c2ae] underline" href={selectedMusic.sourceUrl} rel="noreferrer" target="_blank">?��?來�?／�?權�??</a>}
+                {selectedMusic.credit && <p className="mt-2 text-xs text-[#f0d9cc]">素材：{selectedMusic.credit}</p>}
+                {selectedMusic.sourceUrl && <a className="mt-1 inline-block text-xs text-[#e6c2ae] underline" href={selectedMusic.sourceUrl} rel="noreferrer" target="_blank">查看來源／授權連結</a>}
                 <audio
                   ref={audioRef}
                   className="mt-5 w-full"
@@ -2809,13 +2811,13 @@ function DemoLanding({ error, loading, onGoogleLogin, items = [] }) {
                     type="button"
                   >
                     <span className="min-w-0 truncate">{item.title}</span>
-                    <span className="shrink-0 text-xs">??/span>
+                    <span className="shrink-0 text-xs">▶</span>
                   </button>
                 ))}
               </div>
             </>
           ) : (
-            <p className="mt-7 rounded-2xl bg-white px-4 py-5 text-sm font-semibold text-[#71847f]">尚未設�?展示歌曲??/p>
+            <p className="mt-7 rounded-2xl bg-white px-4 py-5 text-sm font-semibold text-[#71847f]">尚未設定展示歌曲。</p>
           )}
         </div>
 
@@ -2846,13 +2848,13 @@ function DemoLanding({ error, loading, onGoogleLogin, items = [] }) {
               <div className="p-5 text-white">
                 <h3 className="font-serif text-2xl">{selectedVideo.title}</h3>
                 {selectedVideo.description && <p className="mt-2 text-sm leading-6 text-[#d9e6df]">{selectedVideo.description}</p>}
-                {selectedVideo.credit && <p className="mt-3 text-xs text-[#b8cbc2]">素�?：{selectedVideo.credit}</p>}
-                {selectedVideo.sourceUrl && <a className="mt-2 inline-block text-xs text-[#e6c2ae] underline" href={selectedVideo.sourceUrl} rel="noreferrer" target="_blank">?��?來�?／�?權�??</a>}
+                {selectedVideo.credit && <p className="mt-3 text-xs text-[#b8cbc2]">素材：{selectedVideo.credit}</p>}
+                {selectedVideo.sourceUrl && <a className="mt-2 inline-block text-xs text-[#e6c2ae] underline" href={selectedVideo.sourceUrl} rel="noreferrer" target="_blank">查看來源／授權連結</a>}
               </div>
               {videoItems.length > 1 && <div className="grid gap-2 border-t border-white/10 p-4">{videoItems.map((item) => <button className={`rounded-2xl px-4 py-3 text-left text-sm font-bold transition ${item.id === selectedVideo.id ? "bg-[#d9e6df] text-[#334742]" : "bg-white/10 text-white hover:bg-white/20"}`} key={item.id} onClick={() => setSelectedVideoId(item.id)} type="button"><span className="block truncate">{item.title}</span>{item.credit && <span className="mt-1 block truncate text-xs font-normal opacity-75">{item.credit}</span>}</button>)}</div>}
             </div>
           ) : (
-            <p className="mt-7 rounded-2xl bg-white px-4 py-5 text-sm font-semibold text-[#71847f]">尚未設�?展示影�???/p>
+            <p className="mt-7 rounded-2xl bg-white px-4 py-5 text-sm font-semibold text-[#71847f]">尚未設定展示影片。</p>
           )}
         </div>
       </section>
