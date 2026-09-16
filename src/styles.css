@@ -1,0 +1,150 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Nunito Sans", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: Georgia, Cambria, "Times New Roman", serif;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    min-width: 320px;
+    min-height: 100%;
+    background: #f8f1e9;
+  }
+
+  body {
+    min-width: 320px;
+    min-height: 100vh;
+    margin: 0;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: default;
+  }
+}
+
+@layer utilities {
+  video::cue {
+    background: rgb(0 0 0 / 0.62);
+    color: white;
+    font-family: "Nunito Sans", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+    font-weight: 800;
+    line-height: 1.18;
+    text-shadow: 0 2px 4px rgb(0 0 0 / 0.9);
+  }
+
+  video.subtitle-size-small::cue {
+    font-size: clamp(0.9rem, 1.75vmin, 1.45rem);
+  }
+
+  video.subtitle-size-medium::cue {
+    font-size: clamp(1.05rem, 2.35vmin, 2rem);
+  }
+
+  video.subtitle-size-large::cue {
+    font-size: clamp(1.2rem, 3vmin, 2.5rem);
+  }
+}
+
+@layer base {
+  html.theme-midnight {
+    color-scheme: dark;
+    background: #0f1220;
+  }
+
+  html.theme-midnight body {
+    background: #0f1220;
+    color: #e7ecff;
+  }
+
+  html.theme-midnight [class*="bg-[#f4f0e9]"],
+  html.theme-midnight [class*="bg-[#f8f1e9]"] {
+    background: #0f1220 !important;
+  }
+
+  html.theme-midnight [class*="bg-[#fffdf9]"],
+  html.theme-midnight [class*="bg-[#fbfaf6]"],
+  html.theme-midnight [class*="bg-[#fffaf5]"],
+  html.theme-midnight [class*="bg-white"] {
+    background: #171b2b !important;
+  }
+
+  html.theme-midnight [class*="bg-[#eef7f2]"],
+  html.theme-midnight [class*="bg-[#edf5f1]"],
+  html.theme-midnight [class*="bg-[#f4f0e9]"],
+  html.theme-midnight [class*="bg-[#e4eee9]"],
+  html.theme-midnight [class*="bg-[#f2dfd5]"],
+  html.theme-midnight [class*="bg-[#fff0e7]"],
+  html.theme-midnight [class*="bg-[#dfeee4]"] {
+    background: #22283a !important;
+  }
+
+  html.theme-midnight [class*="bg-[#334742]"],
+  html.theme-midnight [class*="bg-[#4f7f78]"] {
+    background: #6e88ff !important;
+  }
+
+  html.theme-midnight [class*="bg-[#bf795c]"] {
+    background: #ff9f87 !important;
+  }
+
+  html.theme-midnight [class*="border-[#d8ded8]"],
+  html.theme-midnight [class*="border-[#d9e2dc]"],
+  html.theme-midnight [class*="border-[#d6dfda]"],
+  html.theme-midnight [class*="border-[#cbdcd4]"],
+  html.theme-midnight [class*="border-[#c7ddd4]"],
+  html.theme-midnight [class*="border-[#ecc4b1]"] {
+    border-color: #313a56 !important;
+  }
+
+  html.theme-midnight [class*="text-[#334742]"],
+  html.theme-midnight [class*="text-[#40504c]"],
+  html.theme-midnight [class*="text-[#405c56]"],
+  html.theme-midnight [class*="text-[#60483f]"] {
+    color: #edf2ff !important;
+  }
+
+  html.theme-midnight [class*="text-[#4f7f78]"],
+  html.theme-midnight [class*="text-[#355d42]"],
+  html.theme-midnight [class*="text-[#3f756d]"],
+  html.theme-midnight [class*="text-[#789064]"] {
+    color: #b9c8ff !important;
+  }
+
+  html.theme-midnight [class*="text-[#5e7e76]"],
+  html.theme-midnight [class*="text-[#71847f]"],
+  html.theme-midnight [class*="text-[#70837d]"],
+  html.theme-midnight [class*="text-[#7c938d]"],
+  html.theme-midnight [class*="text-[#7f958f]"],
+  html.theme-midnight [class*="text-[#6f817c]"],
+  html.theme-midnight [class*="text-[#ad8a7a]"],
+  html.theme-midnight [class*="text-[#88675a]"] {
+    color: #aab6d6 !important;
+  }
+
+  html.theme-midnight [class*="text-[#a3523d]"],
+  html.theme-midnight [class*="text-[#8f5c50]"],
+  html.theme-midnight [class*="text-[#9b5d49]"] {
+    color: #ffb09b !important;
+  }
+
+  html.theme-midnight [class*="text-white"] {
+    color: #f7f9ff !important;
+  }
+
+  html.theme-midnight [class*="placeholder:text-[#a6bab4]"]::placeholder {
+    color: #8d9abf !important;
+  }
+
+  html.theme-midnight [class*="bg-[radial-gradient("] {
+    background: radial-gradient(circle at 74% 0%, rgba(110, 136, 255, 0.18), transparent 38%), #0f1220 !important;
+  }
+}
