@@ -125,6 +125,11 @@ export function enforceDemoReadRateLimit(req, action, limit, nowMs = Date.now())
         demoReadBuckets.delete(existingKey);
       }
     }
+    while (demoReadBuckets.size > 2000) {
+      const oldestKey = demoReadBuckets.keys().next().value;
+      if (oldestKey === undefined) break;
+      demoReadBuckets.delete(oldestKey);
+    }
   }
   if (count > limit) {
     const error = new Error("Demo request limit reached. Please try again later.");
