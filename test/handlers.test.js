@@ -106,6 +106,36 @@ test("demo catalog returns only published items from the demo data source", asyn
   }
 });
 
+test("demo media rejects unpublished and cross-data-source pages before streaming", async () => {
+  const previousFetch = global.fetch;
+  const previousToken = process.env.NOTION_TOKEN;
+  const previousDataSource = process.env.NOTION_DEMO_DATA_SOURCE_ID;
+  process.env.NOTION_TOKEN = "test-token";
+  process.env.NOTION_DEMO_DATA_SOURCE_ID = "demo-source-security";
+  const page = (parent, published) => ({
+    id: "demo-page",
+    parent: { type: "data_source_id", data_source_id: parent },
+    properties: {
+      Name: { title: [{ plain_text: "Demo" }] },
+      Type: { select: { name: "Music" } },
+      Published: { checkbox: published },
+      Media: { files: [{ type: "file", name: "demo.mp3", file: { url: "https://example.test/demo.mp3" } }] },
+    },
+  });
+  try {
+    for (const [parent, published] of [["other-source", true], ["demo-source-security", false]]) {
+      global.fetch = async (url) => new Response(JSON.stringify(page(parent, published)), { status: 200, headers: { "Content-Type": "application/json" } });
+      const res = mockResponse();
+      await handleDemoMedia({ method: "GET", headers: {}, url: "/api/demo/media/demo-page", ip: `198.51.100.${parent === "other-source" ? 51 : 52}` }, res, "demo-page");
+      assert.equal(res.statusCode, 404);
+    }
+  } finally {
+    global.fetch = previousFetch;
+    if (previousToken === undefined) delete process.env.NOTION_TOKEN; else process.env.NOTION_TOKEN = previousToken;
+    if (previousDataSource === undefined) delete process.env.NOTION_DEMO_DATA_SOURCE_ID; else process.env.NOTION_DEMO_DATA_SOURCE_ID = previousDataSource;
+  }
+});
+
 test("fetchMediaSource forwards range requests and retries expired signed URLs", async () => {
   const previousFetch = global.fetch;
   const calls = [];
