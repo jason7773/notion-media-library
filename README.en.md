@@ -127,6 +127,8 @@ NOTION_DATA_SOURCE_ID=replace_with_music_data_source_id
 NOTION_VIDEO_DATA_SOURCE_ID=replace_with_video_data_source_id
 NOTION_DEMO_MUSIC_DATA_SOURCE_ID=
 NOTION_DEMO_VIDEO_DATA_SOURCE_ID=
+# Optional compatibility fallback for the former single Demo Media source.
+NOTION_DEMO_DATA_SOURCE_ID=
 ALLOWED_ORIGINS=http://localhost:5173
 ADMIN_EMAILS=you@example.com
 
@@ -152,6 +154,10 @@ The Firebase CLI prompts for non-secret function params such as
 
 Set `ALLOWED_ORIGINS` to the exact Hosting and preview origins used by your
 deployment. The default only permits localhost.
+
+Upgrades may keep the former `NOTION_DEMO_DATA_SOURCE_ID` single-source Demo
+Media schema. It is used only when the matching dedicated Demo Music or Demo
+Video ID is empty; dedicated sources always take precedence.
 
 ## Local Development
 

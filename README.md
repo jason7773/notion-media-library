@@ -177,6 +177,7 @@ Notion 官方操作可參考 [建立 internal connection](https://www.notion.com
 - **Demo Music**：複製音樂 data source 的 schema，另外新增 `Published`（Checkbox）。每一列仍是一張專輯，專輯頁面中的 Audio／FLAC blocks 仍是曲目。勾選專輯會公開這張專輯與頁面內所有合法音訊檔。
 - **Demo Video**：複製影片 data source 的 schema，另外新增 `Published`（Checkbox）。只會公開勾選的影片頁及合法 MP4／WebM／M4V、封面與 WebVTT 字幕。
 - 沒有要公開某一類內容時，可將對應的 Demo data source ID 留空；網站仍使用同一套介面，該目錄顯示空狀態。
+- 從舊版升級且仍使用單一 `Demo Media` data source 時，可保留 `NOTION_DEMO_DATA_SOURCE_ID`。只要新版對應 ID 留空，後端會把舊版 Music／Video 列轉成同一套介面；新版 ID 一旦設定就會優先使用新版來源。
 - 只放自有或明確取得展示及公開播放授權的影音；Demo API 每次讀取曲目、影片、封面或字幕時都重新驗證來源與 Published 狀態。
 
 ### 6. 取得 data source ID
@@ -190,6 +191,7 @@ NOTION_DATA_SOURCE_ID=音樂 data source ID
 NOTION_VIDEO_DATA_SOURCE_ID=影片 data source ID
 NOTION_DEMO_MUSIC_DATA_SOURCE_ID=Demo Music data source ID（可留空）
 NOTION_DEMO_VIDEO_DATA_SOURCE_ID=Demo Video data source ID（可留空）
+NOTION_DEMO_DATA_SOURCE_ID=舊版單一 Demo Media ID（僅升級相容，可留空）
 ```
 
 如果部署後出現 Notion 404，優先檢查：ID 是否為 data source ID、connection 是否已加入該 database 頁面、以及 connection 是否屬於同一個 workspace。
@@ -217,6 +219,8 @@ NOTION_DATA_SOURCE_ID=your_music_data_source_id
 NOTION_VIDEO_DATA_SOURCE_ID=your_video_data_source_id
 NOTION_DEMO_MUSIC_DATA_SOURCE_ID=your_demo_music_data_source_id
 NOTION_DEMO_VIDEO_DATA_SOURCE_ID=your_demo_video_data_source_id
+# 只有舊版單一 Demo Media 部署才需要；新部署留空
+NOTION_DEMO_DATA_SOURCE_ID=
 ALLOWED_ORIGINS=http://localhost:5173,https://YOUR_PROJECT_ID.web.app,https://YOUR_PROJECT_ID.firebaseapp.com
 ADMIN_EMAILS=your-google-account@example.com
 
@@ -275,6 +279,8 @@ firebase deploy --only firestore,functions
 | `NOTION_DEMO_VIDEO_DATA_SOURCE_ID` | Demo Video ID；不用公開影片則留空 |
 | `ALLOWED_ORIGINS` | `http://localhost:5173,https://PROJECT_ID.web.app,https://PROJECT_ID.firebaseapp.com` |
 | `ADMIN_EMAILS` | 第一位管理員的 Google 信箱；多個以逗號分隔 |
+
+舊版相容的 `NOTION_DEMO_DATA_SOURCE_ID` 不會由 CLI 主動詢問；需要時請加入 `functions/.env.<PROJECT_ID>`。新部署不需要設定。
 
 這一步也會部署拒絕瀏覽器直接讀寫的 Firestore rules，以及後台查詢需要的 indexes。CLI 儲存的本機參數檔已被 `.gitignore` 排除。
 

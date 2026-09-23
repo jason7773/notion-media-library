@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import {
   mapAlbum,
   mapLibraryTracks,
+  mapLegacyDemoAlbum,
+  mapLegacyDemoTrack,
+  mapLegacyDemoVideo,
   mapTracks,
   mapVideo,
   isPublishedPage,
@@ -71,6 +74,44 @@ test("demo album, track, video, and subtitle URLs use the shared catalog model",
   assert.equal(video.video.url, "/api/demo/video-stream/demo-video?v=2026-09-23");
   assert.equal(video.coverUrl, "/api/demo/video-cover/demo-video");
   assert.equal(video.subtitles[0].url, "/api/demo/video-subtitle/demo-video/0?v=2026-09-23");
+});
+
+test("legacy Demo Media rows adapt to the shared album, track, and video models", () => {
+  const basePage = {
+    id: "legacy-item",
+    last_edited_time: "2026-09-24T00:00:00Z",
+    properties: {
+      Name: { title: [{ plain_text: "Legacy sample" }] },
+      Artist: { rich_text: [{ plain_text: "Demo artist" }] },
+      Published: { checkbox: true },
+      Cover: { files: [{ type: "file", name: "cover.jpg", file: { url: "https://example.test/cover.jpg" } }] },
+    },
+  };
+  const musicPage = {
+    ...basePage,
+    properties: {
+      ...basePage.properties,
+      Type: { select: { name: "Music" } },
+      Media: { files: [{ type: "file", name: "sample.mp3", file: { url: "https://example.test/sample.mp3" } }] },
+    },
+  };
+  const album = mapLegacyDemoAlbum(musicPage);
+  const track = mapLegacyDemoTrack(musicPage, album);
+  assert.equal(album.coverUrl, "/api/demo/cover/legacy-item");
+  assert.equal(track.id, "legacy-item");
+  assert.equal(track.url, "/api/demo/track/legacy-item/legacy-item");
+
+  const video = mapLegacyDemoVideo({
+    ...basePage,
+    properties: {
+      ...basePage.properties,
+      Type: { select: { name: "Video" } },
+      Media: { files: [{ type: "file", name: "sample.mp4", file: { url: "https://example.test/sample.mp4" } }] },
+      Subtitles: { files: [{ type: "file", name: "sample.zh-Hant.vtt", file: { url: "https://example.test/sample.vtt" } }] },
+    },
+  });
+  assert.equal(video.video.url, "/api/demo/video-stream/legacy-item?v=2026-09-24T00%3A00%3A00Z");
+  assert.equal(video.subtitles[0].url, "/api/demo/video-subtitle/legacy-item/0?v=2026-09-24T00%3A00%3A00Z");
 });
 
 test("mapTracks keeps audio blocks in page order and supports external URLs", () => {

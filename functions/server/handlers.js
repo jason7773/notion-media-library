@@ -4,10 +4,12 @@ import {
   getDataSourceId,
   getDemoMusicDataSourceId,
   getDemoVideoDataSourceId,
+  getLegacyDemoDataSourceId,
   getVideoDataSourceId,
   queryAllAlbums,
   queryAllDemoAlbums,
   queryAllDemoVideos,
+  queryAllLegacyDemoMedia,
   queryAllVideos,
   retrieveAllBlockChildren,
   retrievePage,
@@ -30,6 +32,10 @@ import {
   mapAlbum,
   mapAlbums,
   mapLibraryTracks,
+  mapLegacyDemoAlbum,
+  mapLegacyDemoItem,
+  mapLegacyDemoTrack,
+  mapLegacyDemoVideo,
   mapTrack,
   mapTracks,
   mapVideo,
@@ -153,7 +159,13 @@ async function authenticatedUser(req, res, feature) {
 }
 
 function demoSourceFor(kind) {
-  return kind === "music" ? getDemoMusicDataSourceId() : getDemoVideoDataSourceId();
+  const dedicatedSource = kind === "music" ? getDemoMusicDataSourceId() : getDemoVideoDataSourceId();
+  return dedicatedSource || getLegacyDemoDataSourceId();
+}
+
+function demoUsesLegacySource(kind) {
+  const dedicatedSource = kind === "music" ? getDemoMusicDataSourceId() : getDemoVideoDataSourceId();
+  return !dedicatedSource && Boolean(getLegacyDemoDataSourceId());
 }
 
 function ensurePublishedPage(page, kind) {
@@ -163,7 +175,20 @@ function ensurePublishedPage(page, kind) {
     error.status = 404;
     throw error;
   }
+  if (demoUsesLegacySource(kind) && mapLegacyDemoItem(page)?.type !== kind) {
+    const error = new Error("Demo item not found.");
+    error.status = 404;
+    throw error;
+  }
   return page;
+}
+
+function legacyEntries(pages, sourceId, kind) {
+  return pages
+    .filter((page) => pageBelongsToDataSource(page, sourceId))
+    .map((page) => ({ page, item: mapLegacyDemoItem(page) }))
+    .filter(({ item }) => item?.type === kind)
+    .sort((a, b) => (a.item.order ?? Number.MAX_SAFE_INTEGER) - (b.item.order ?? Number.MAX_SAFE_INTEGER) || a.item.title.localeCompare(b.item.title));
 }
 
 function ensureAudioBlock(block) {
@@ -204,27 +229,51 @@ export async function handleDemoCatalog(req, res, kind) {
     enforceDemoReadRateLimit(req, `catalog:${kind}`, DEMO_CATALOG_LIMIT);
     if (kind === "albums") {
       const sourceId = getDemoMusicDataSourceId();
-      const pages = sourceId ? await queryAllDemoAlbums() : [];
-      sendJson(req, res, 200, mapAlbums(pages.filter((page) => pageBelongsToDataSource(page, sourceId) && isPublishedPage(page)), { demo: true }), DEMO_CATALOG_CACHE);
+      if (sourceId) {
+        const pages = await queryAllDemoAlbums();
+        sendJson(req, res, 200, mapAlbums(pages.filter((page) => pageBelongsToDataSource(page, sourceId) && isPublishedPage(page)), { demo: true }), DEMO_CATALOG_CACHE);
+      } else {
+        const legacySourceId = getLegacyDemoDataSourceId();
+        const entries = legacySourceId ? legacyEntries(await queryAllLegacyDemoMedia(), legacySourceId, "music") : [];
+        sendJson(req, res, 200, entries.map(({ page }) => mapLegacyDemoAlbum(page)), DEMO_CATALOG_CACHE);
+      }
       return;
     }
     if (kind === "library") {
       const sourceId = getDemoMusicDataSourceId();
-      const pages = sourceId ? await queryAllDemoAlbums() : [];
-      const albums = mapAlbums(pages.filter((page) => pageBelongsToDataSource(page, sourceId) && isPublishedPage(page)), { demo: true });
-      const tracks = await mapWithConcurrency(albums, LIBRARY_ALBUM_CONCURRENCY, async (album) => {
-        const blocks = await retrieveAllBlockChildren(album.id);
-        return mapLibraryTracks(album, blocks, { demo: true });
-      });
-      sendJson(req, res, 200, tracks.flat(), DEMO_CATALOG_CACHE);
+      if (sourceId) {
+        const pages = await queryAllDemoAlbums();
+        const albums = mapAlbums(pages.filter((page) => pageBelongsToDataSource(page, sourceId) && isPublishedPage(page)), { demo: true });
+        const tracks = await mapWithConcurrency(albums, LIBRARY_ALBUM_CONCURRENCY, async (album) => {
+          const blocks = await retrieveAllBlockChildren(album.id);
+          return mapLibraryTracks(album, blocks, { demo: true });
+        });
+        sendJson(req, res, 200, tracks.flat(), DEMO_CATALOG_CACHE);
+      } else {
+        const legacySourceId = getLegacyDemoDataSourceId();
+        const entries = legacySourceId ? legacyEntries(await queryAllLegacyDemoMedia(), legacySourceId, "music") : [];
+        sendJson(req, res, 200, entries.map(({ page }) => {
+          const album = mapLegacyDemoAlbum(page);
+          const track = mapLegacyDemoTrack(page, album);
+          if (track) delete track.url;
+          return track;
+        }).filter(Boolean), DEMO_CATALOG_CACHE);
+      }
       return;
     }
     if (kind === "videos") {
       const sourceId = getDemoVideoDataSourceId();
-      const pages = sourceId ? await queryAllDemoVideos() : [];
-      const publishedPages = pages.filter((page) => pageBelongsToDataSource(page, sourceId) && isPublishedPage(page));
-      const videos = mapVideos(publishedPages, { proxyVideo: true, proxySubtitles: true, demo: true, apiPrefix: "/api/demo" })
-        .filter((video) => video.video?.name && /\.(mp4|webm|m4v)$/i.test(video.video.name));
+      let videos;
+      if (sourceId) {
+        const pages = await queryAllDemoVideos();
+        const publishedPages = pages.filter((page) => pageBelongsToDataSource(page, sourceId) && isPublishedPage(page));
+        videos = mapVideos(publishedPages, { proxyVideo: true, proxySubtitles: true, demo: true, apiPrefix: "/api/demo" })
+          .filter((video) => video.video?.name && /\.(mp4|webm|m4v)$/i.test(video.video.name));
+      } else {
+        const legacySourceId = getLegacyDemoDataSourceId();
+        const entries = legacySourceId ? legacyEntries(await queryAllLegacyDemoMedia(), legacySourceId, "video") : [];
+        videos = entries.map(({ page }) => mapLegacyDemoVideo(page)).filter(Boolean);
+      }
       sendJson(req, res, 200, videos, DEMO_CATALOG_CACHE);
       return;
     }
@@ -244,14 +293,23 @@ export async function handleDemoPage(req, res, kind, pageId) {
     enforceDemoReadRateLimit(req, "asset", DEMO_ASSET_LIMIT);
     const musicPage = kind === "album" || kind === "playlist";
     const page = ensurePublishedPage(await retrievePage(pageId, { fresh: true }), musicPage ? "music" : "video");
+    const legacy = demoUsesLegacySource(musicPage ? "music" : "video");
     if (kind === "album") {
-      sendJson(req, res, 200, mapAlbum(page, { demo: true }), DEMO_CATALOG_CACHE);
+      sendJson(req, res, 200, legacy ? mapLegacyDemoAlbum(page) : mapAlbum(page, { demo: true }), DEMO_CATALOG_CACHE);
     } else if (kind === "playlist") {
-      const blocks = await retrieveAllBlockChildren(pageId, { fresh: true });
-      sendJson(req, res, 200, mapTracks(blocks, { demo: true, albumId: pageId }), DEMO_CATALOG_CACHE);
+      if (legacy) {
+        sendJson(req, res, 200, [mapLegacyDemoTrack(page)].filter(Boolean), DEMO_CATALOG_CACHE);
+      } else {
+        const blocks = await retrieveAllBlockChildren(pageId, { fresh: true });
+        sendJson(req, res, 200, mapTracks(blocks, { demo: true, albumId: pageId }), DEMO_CATALOG_CACHE);
+      }
     } else if (kind === "video") {
-      ensureDemoVideo(page);
-      sendJson(req, res, 200, mapVideo(page, { proxyVideo: true, proxySubtitles: true, demo: true, apiPrefix: "/api/demo" }), DEMO_CATALOG_CACHE);
+      if (legacy) {
+        sendJson(req, res, 200, mapLegacyDemoVideo(page), DEMO_CATALOG_CACHE);
+      } else {
+        ensureDemoVideo(page);
+        sendJson(req, res, 200, mapVideo(page, { proxyVideo: true, proxySubtitles: true, demo: true, apiPrefix: "/api/demo" }), DEMO_CATALOG_CACHE);
+      }
     } else {
       sendJson(req, res, 404, { error: "Demo route not found." });
     }
@@ -269,6 +327,16 @@ export async function handleDemoTrackInfo(req, res, albumId, blockId) {
   try {
     enforceDemoReadRateLimit(req, "asset", DEMO_ASSET_LIMIT);
     const page = ensurePublishedPage(await retrievePage(albumId, { fresh: true }), "music");
+    if (demoUsesLegacySource("music")) {
+      const item = mapLegacyDemoItem(page, { includeSourceUrls: true });
+      if (blockId !== page.id || item?.media?.format !== "flac") {
+        sendJson(req, res, 404, { error: "FLAC track not found." });
+        return;
+      }
+      const metadata = await inspectFlac(item.media.sourceUrl, { cacheKey: `demo-legacy:${page.id}:${page.last_edited_time || "1"}` });
+      sendJson(req, res, 200, { id: page.id, title: item.title, ...metadata }, DEMO_CATALOG_CACHE);
+      return;
+    }
     const blocks = await retrieveAllBlockChildren(albumId, { fresh: true });
     const block = blocks.find((candidate) => candidate.id === blockId);
     const track = ensureAudioBlock(block);
@@ -295,7 +363,21 @@ export async function handleDemoMediaAsset(req, res, kind, pageId, blockId = "")
     let sourceUrl;
     let contentType;
     let refreshSource;
-    if (kind === "music") {
+    if (demoUsesLegacySource(kind)) {
+      const item = mapLegacyDemoItem(page, { includeSourceUrls: true });
+      if (!item || (kind === "music" && blockId !== page.id)) {
+        const error = new Error("Demo media not found.");
+        error.status = 404;
+        throw error;
+      }
+      sourceUrl = item.media.sourceUrl;
+      const types = { flac: "audio/flac", mp3: "audio/mpeg", m4a: "audio/mp4", ogg: "audio/ogg", oga: "audio/ogg", wav: "audio/wav", aac: "audio/aac", mp4: "video/mp4", webm: "video/webm", m4v: "video/mp4" };
+      contentType = types[item.media.format] || "application/octet-stream";
+      refreshSource = async () => {
+        const freshPage = ensurePublishedPage(await retrievePage(pageId, { fresh: true }), kind);
+        return mapLegacyDemoItem(freshPage, { includeSourceUrls: true })?.media?.sourceUrl || null;
+      };
+    } else if (kind === "music") {
       const blocks = await retrieveAllBlockChildren(pageId, { fresh: true });
       const block = blocks.find((candidate) => candidate.id === blockId);
       const track = ensureAudioBlock(block);
@@ -337,6 +419,18 @@ export async function handleDemoCoverAsset(req, res, kind, pageId) {
   try {
     enforceDemoReadRateLimit(req, "asset", DEMO_ASSET_LIMIT);
     const page = ensurePublishedPage(await retrievePage(pageId, { fresh: true }), kind);
+    if (demoUsesLegacySource(kind)) {
+      const item = mapLegacyDemoItem(page, { includeSourceUrls: true });
+      if (!item?.coverSourceUrl) {
+        sendJson(req, res, 404, { error: "Demo cover not found." });
+        return;
+      }
+      await sendCoverImage(req, res, coverCacheKey(`demo-legacy-${kind}`, pageId, page.last_edited_time), item.coverSourceUrl, async () => {
+        const fresh = ensurePublishedPage(await retrievePage(pageId, { fresh: true }), kind);
+        return mapLegacyDemoItem(fresh, { includeSourceUrls: true })?.coverSourceUrl || null;
+      });
+      return;
+    }
     const media = kind === "music" ? mapAlbum(page) : mapVideo(page);
     if (!media.cover) {
       sendJson(req, res, 404, { error: "Demo cover not found." });
@@ -361,14 +455,19 @@ export async function handleDemoSubtitleAsset(req, res, pageId, subtitleIndex) {
   try {
     enforceDemoReadRateLimit(req, "asset", DEMO_ASSET_LIMIT);
     const page = ensurePublishedPage(await retrievePage(pageId, { fresh: true }), "video");
-    const subtitle = mapVideo(page).subtitles[index];
+    const legacy = demoUsesLegacySource("video");
+    const subtitle = legacy
+      ? mapLegacyDemoItem(page, { includeSourceUrls: true })?.subtitles[index]
+      : mapVideo(page).subtitles[index];
     if (!subtitle?.url) {
       sendJson(req, res, 404, { error: "Demo subtitle not found." });
       return;
     }
-    const source = await fetchMediaSource(req, subtitle.url, async () => {
+    const source = await fetchMediaSource(req, subtitle.sourceUrl || subtitle.url, async () => {
       const fresh = ensurePublishedPage(await retrievePage(pageId, { fresh: true }), "video");
-      return mapVideo(fresh).subtitles[index]?.url || null;
+      return legacy
+        ? mapLegacyDemoItem(fresh, { includeSourceUrls: true })?.subtitles[index]?.sourceUrl || null
+        : mapVideo(fresh).subtitles[index]?.url || null;
     });
     if (!source.ok) {
       const error = new Error(`Unable to load demo subtitle (${source.status}).`);

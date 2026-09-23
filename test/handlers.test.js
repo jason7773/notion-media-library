@@ -70,6 +70,68 @@ test("demo music catalog exposes only published albums belonging to its source",
   }
 });
 
+test("legacy Demo Media is used when dedicated demo sources are not configured", async () => {
+  const previousFetch = global.fetch;
+  const previousToken = process.env.NOTION_TOKEN;
+  const previousLegacy = process.env.NOTION_DEMO_DATA_SOURCE_ID;
+  const previousMusic = process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID;
+  const previousVideo = process.env.NOTION_DEMO_VIDEO_DATA_SOURCE_ID;
+  const dataSourceId = `legacy-demo-${Date.now()}`;
+  process.env.NOTION_TOKEN = "test-token";
+  process.env.NOTION_DEMO_DATA_SOURCE_ID = dataSourceId;
+  delete process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID;
+  delete process.env.NOTION_DEMO_VIDEO_DATA_SOURCE_ID;
+  global.fetch = async (url) => {
+    assert.match(String(url), new RegExp(`/data_sources/${dataSourceId}/query$`));
+    return new Response(JSON.stringify({ results: [
+      {
+        id: "legacy-music",
+        parent: { type: "data_source_id", data_source_id: dataSourceId },
+        properties: {
+          Name: { title: [{ plain_text: "Legacy song" }] },
+          Type: { select: { name: "Music" } },
+          Published: { checkbox: true },
+          Media: { files: [{ type: "file", name: "song.mp3", file: { url: "https://notion.example/song.mp3" } }] },
+        },
+      },
+      {
+        id: "legacy-video",
+        parent: { type: "data_source_id", data_source_id: dataSourceId },
+        properties: {
+          Name: { title: [{ plain_text: "Legacy video" }] },
+          Type: { select: { name: "Video" } },
+          Published: { checkbox: true },
+          Media: { files: [{ type: "file", name: "video.mp4", file: { url: "https://notion.example/video.mp4" } }] },
+        },
+      },
+      {
+        id: "hidden",
+        parent: { type: "data_source_id", data_source_id: dataSourceId },
+        properties: {
+          Name: { title: [{ plain_text: "Hidden" }] },
+          Type: { select: { name: "Music" } },
+          Published: { checkbox: false },
+          Media: { files: [{ type: "file", name: "hidden.mp3", file: { url: "https://notion.example/hidden.mp3" } }] },
+        },
+      },
+    ], has_more: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  try {
+    const albumResponse = mockResponse();
+    await handleDemoCatalog({ method: "GET", headers: {}, url: "/api/demo/albums", ip: "198.51.100.60" }, albumResponse, "albums");
+    assert.deepEqual(JSON.parse(albumResponse.body).map((item) => item.id), ["legacy-music"]);
+    const videoResponse = mockResponse();
+    await handleDemoCatalog({ method: "GET", headers: {}, url: "/api/demo/videos", ip: "198.51.100.61" }, videoResponse, "videos");
+    assert.deepEqual(JSON.parse(videoResponse.body).map((item) => item.id), ["legacy-video"]);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousToken === undefined) delete process.env.NOTION_TOKEN; else process.env.NOTION_TOKEN = previousToken;
+    if (previousLegacy === undefined) delete process.env.NOTION_DEMO_DATA_SOURCE_ID; else process.env.NOTION_DEMO_DATA_SOURCE_ID = previousLegacy;
+    if (previousMusic === undefined) delete process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID; else process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID = previousMusic;
+    if (previousVideo === undefined) delete process.env.NOTION_DEMO_VIDEO_DATA_SOURCE_ID; else process.env.NOTION_DEMO_VIDEO_DATA_SOURCE_ID = previousVideo;
+  }
+});
+
 test("demo video catalog exposes only published videos from its separate source with proxied assets", async () => {
   const previousFetch = global.fetch;
   const previousToken = process.env.NOTION_TOKEN;

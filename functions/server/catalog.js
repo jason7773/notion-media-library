@@ -20,6 +20,14 @@ function readProperty(properties, name) {
   return properties?.[name];
 }
 
+function readFileProperty(properties, name) {
+  return readProperty(properties, name)?.files?.[0] || null;
+}
+
+function readRichTextProperty(properties, name) {
+  return readPlainText(readProperty(properties, name)?.rich_text);
+}
+
 function readSelectNames(property) {
   if (property?.select?.name) {
     return [property.select.name];
@@ -186,6 +194,114 @@ export function mapVideo(page, options = {}) {
     audioLanguage,
     runtime: readProperty(properties, "Runtime")?.number ?? null,
     status: readProperty(properties, "Status")?.select?.name || null,
+  };
+}
+
+export function mapLegacyDemoItem(page, options = {}) {
+  const properties = page?.properties || {};
+  const type = String(readProperty(properties, "Type")?.select?.name || "").trim().toLowerCase();
+  if (!isPublishedPage(page) || !["music", "video"].includes(type)) return null;
+
+  const title = readPlainText(readProperty(properties, "Name")?.title);
+  const mediaFile = readFileProperty(properties, "Media");
+  const mediaSourceUrl = readFileUrl(mediaFile);
+  const mediaName = readFileName(mediaFile);
+  const format = mediaName.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() || "";
+  const allowedFormats = type === "video"
+    ? new Set(["mp4", "webm", "m4v"])
+    : new Set(["flac", "mp3", "m4a", "ogg", "oga", "wav", "aac"]);
+  if (!title || !mediaSourceUrl || !allowedFormats.has(format)) return null;
+
+  const coverSourceUrl = readFileUrl(readFileProperty(properties, "Cover"));
+  const subtitles = type === "video"
+    ? (readProperty(properties, "Subtitles")?.files || [])
+        .filter((file) => readFileName(file).toLowerCase().endsWith(".vtt") && readFileUrl(file))
+        .map((file, index) => ({
+          name: readFileName(file),
+          url: buildSubtitleUrl(page.id, index, page.last_edited_time, "/api/demo"),
+          ...parseSubtitleLanguage(readFileName(file)),
+          ...(options.includeSourceUrls ? { sourceUrl: readFileUrl(file) } : {}),
+        }))
+    : [];
+
+  return {
+    id: page.id,
+    title,
+    type,
+    artist: readRichTextProperty(properties, "Artist") || null,
+    description: readRichTextProperty(properties, "Description") || null,
+    credit: readRichTextProperty(properties, "Credit") || null,
+    sourceUrl: readProperty(properties, "Source URL")?.url || null,
+    order: readProperty(properties, "Order")?.number ?? null,
+    coverUrl: coverSourceUrl
+      ? `/api/demo/${type === "video" ? "video-cover" : "cover"}/${encodeURIComponent(page.id)}`
+      : null,
+    ...(options.includeSourceUrls && coverSourceUrl ? { coverSourceUrl } : {}),
+    media: {
+      name: mediaName,
+      format,
+      url: type === "video"
+        ? buildVideoStreamUrl(page.id, page.last_edited_time, "/api/demo")
+        : `/api/demo/track/${encodeURIComponent(page.id)}/${encodeURIComponent(page.id)}`,
+      ...(options.includeSourceUrls ? { sourceUrl: mediaSourceUrl } : {}),
+    },
+    subtitles,
+    updatedAt: page.last_edited_time || null,
+  };
+}
+
+export function mapLegacyDemoAlbum(page) {
+  const item = mapLegacyDemoItem(page);
+  if (!item || item.type !== "music") return null;
+  return {
+    id: item.id,
+    title: item.title,
+    artist: item.artist || "Unknown artist",
+    year: null,
+    genre: null,
+    cover: null,
+    coverUrl: item.coverUrl,
+    coverVersion: item.updatedAt,
+  };
+}
+
+export function mapLegacyDemoTrack(page, album = mapLegacyDemoAlbum(page)) {
+  const item = mapLegacyDemoItem(page);
+  if (!item || item.type !== "music" || !album) return null;
+  return {
+    id: item.id,
+    title: item.title,
+    url: item.media.url,
+    format: item.media.format,
+    album,
+  };
+}
+
+export function mapLegacyDemoVideo(page) {
+  const item = mapLegacyDemoItem(page);
+  if (!item || item.type !== "video") return null;
+  return {
+    id: item.id,
+    title: item.title,
+    year: null,
+    genres: [],
+    genre: null,
+    series: null,
+    seriesOrder: null,
+    cover: null,
+    coverUrl: item.coverUrl,
+    createdAt: page.created_time || null,
+    coverVersion: item.updatedAt,
+    updatedAt: item.updatedAt,
+    video: {
+      name: item.media.name,
+      url: item.media.url,
+      proxyUrl: item.media.url,
+    },
+    subtitles: item.subtitles,
+    audioLanguage: null,
+    runtime: null,
+    status: null,
   };
 }
 

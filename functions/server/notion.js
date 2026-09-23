@@ -133,6 +133,12 @@ export async function queryAllDemoVideos() {
   return queryAllPagesWithTtl(dataSourceId, demoCatalogCacheTtlMs());
 }
 
+export async function queryAllLegacyDemoMedia() {
+  const dataSourceId = getLegacyDemoDataSourceId();
+  if (!dataSourceId) return [];
+  return queryAllPagesWithTtl(dataSourceId, demoCatalogCacheTtlMs());
+}
+
 export async function retrievePage(pageId, options = {}) {
   const key = `page:${pageId}`;
   const loader = () => notionRequest(`/pages/${encodeURIComponent(pageId)}`);
@@ -185,12 +191,12 @@ function normalizedDataSourceId(value) {
   return String(value || "").replaceAll("-", "").toLowerCase();
 }
 
-function getSafeDemoDataSourceId(name, otherDemoName) {
+function getSafeDemoDataSourceId(name, otherDemoNames) {
   const value = String(process.env[name] || "").trim();
   const normalized = normalizedDataSourceId(value);
   if (!normalized) return "";
   const privateSources = [process.env.NOTION_DATA_SOURCE_ID, process.env.NOTION_VIDEO_DATA_SOURCE_ID];
-  const demoSources = [process.env[otherDemoName]];
+  const demoSources = [otherDemoNames].flat().map((otherName) => process.env[otherName]);
   if ([...privateSources, ...demoSources].some((candidate) => normalizedDataSourceId(candidate) === normalized)) {
     return "";
   }
@@ -203,4 +209,11 @@ export function getDemoMusicDataSourceId() {
 
 export function getDemoVideoDataSourceId() {
   return getSafeDemoDataSourceId("NOTION_DEMO_VIDEO_DATA_SOURCE_ID", "NOTION_DEMO_MUSIC_DATA_SOURCE_ID");
+}
+
+export function getLegacyDemoDataSourceId() {
+  return getSafeDemoDataSourceId(
+    "NOTION_DEMO_DATA_SOURCE_ID",
+    ["NOTION_DEMO_MUSIC_DATA_SOURCE_ID", "NOTION_DEMO_VIDEO_DATA_SOURCE_ID"],
+  );
 }
