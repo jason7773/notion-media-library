@@ -220,6 +220,15 @@ export async function handleDemoMedia(req, res, pageId) {
       await retrievePage(pageId, { fresh: true }),
       dataSourceId,
     );
+    const direct = new URL(req.url || "/", "http://localhost").searchParams.get("direct") === "1";
+    if (direct) {
+      setCors(req, res);
+      res.statusCode = 302;
+      res.setHeader("Cache-Control", "private, no-store");
+      res.setHeader("Location", item.media.sourceUrl);
+      res.end();
+      return;
+    }
     const source = await fetchMediaSource(
       req,
       item.media.sourceUrl,
@@ -346,11 +355,26 @@ export async function fetchMediaSource(req, sourceUrl, refreshSourceUrl, options
   }
 
   const request = { method, headers };
-  let response = await fetch(sourceUrl, request);
+  let activeSourceUrl = sourceUrl;
+  let response = await fetch(activeSourceUrl, request);
   if (isExpiredSourceResponse(response) && refreshSourceUrl) {
     const freshUrl = await refreshSourceUrl();
     if (freshUrl) {
-      response = await fetch(freshUrl, request);
+      activeSourceUrl = freshUrl;
+      response = await fetch(activeSourceUrl, request);
+    }
+  }
+
+  // Some Notion file hosts reject HEAD even though they support ranged GET.
+  // Use a one-byte range only to obtain equivalent response headers.
+  if (method === "HEAD" && response.status === 403) {
+    const fallbackHeaders = { ...headers, Range: headers.Range || "bytes=0-0" };
+    response = await fetch(activeSourceUrl, { method: "GET", headers: fallbackHeaders });
+    if (isExpiredSourceResponse(response) && refreshSourceUrl) {
+      const freshUrl = await refreshSourceUrl();
+      if (freshUrl) {
+        response = await fetch(freshUrl, { method: "GET", headers: fallbackHeaders });
+      }
     }
   }
   return response;
@@ -375,6 +399,9 @@ async function sendFetchResponse(req, res, source, cacheControl, fallbackContent
   res.setHeader("Content-Type", source.headers.get("Content-Type") || fallbackContentType);
 
   if (req.method === "HEAD") {
+    if (source.body) {
+      await source.body.cancel().catch(() => {});
+    }
     res.end();
     return;
   }

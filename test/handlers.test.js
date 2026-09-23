@@ -136,6 +136,37 @@ test("demo media rejects unpublished and cross-data-source pages before streamin
   }
 });
 
+test("demo media can redirect to a freshly validated Notion URL for ranged playback", async () => {
+  const previousFetch = global.fetch;
+  const previousToken = process.env.NOTION_TOKEN;
+  const previousDataSource = process.env.NOTION_DEMO_DATA_SOURCE_ID;
+  process.env.NOTION_TOKEN = "test-token";
+  process.env.NOTION_DEMO_DATA_SOURCE_ID = "demo-source-direct";
+  const sourceUrl = "https://example.test/demo.mp4";
+  global.fetch = async () => new Response(JSON.stringify({
+    id: "demo-page",
+    parent: { type: "data_source_id", data_source_id: "demo-source-direct" },
+    properties: {
+      Name: { title: [{ plain_text: "Demo video" }] },
+      Type: { select: { name: "Video" } },
+      Published: { checkbox: true },
+      Media: { files: [{ type: "file", name: "demo.mp4", file: { url: sourceUrl } }] },
+    },
+  }), { status: 200, headers: { "Content-Type": "application/json" } });
+
+  try {
+    const res = mockResponse();
+    await handleDemoMedia({ method: "GET", headers: {}, url: "/api/demo/media/demo-page?direct=1", ip: "198.51.100.53" }, res, "demo-page");
+    assert.equal(res.statusCode, 302);
+    assert.equal(res.headers.Location, sourceUrl);
+    assert.equal(res.headers["Cache-Control"], "private, no-store");
+  } finally {
+    global.fetch = previousFetch;
+    if (previousToken === undefined) delete process.env.NOTION_TOKEN; else process.env.NOTION_TOKEN = previousToken;
+    if (previousDataSource === undefined) delete process.env.NOTION_DEMO_DATA_SOURCE_ID; else process.env.NOTION_DEMO_DATA_SOURCE_ID = previousDataSource;
+  }
+});
+
 test("fetchMediaSource forwards range requests and retries expired signed URLs", async () => {
   const previousFetch = global.fetch;
   const calls = [];
@@ -167,6 +198,40 @@ test("fetchMediaSource forwards range requests and retries expired signed URLs",
     );
     assert.equal(calls[0].options.headers.Range, "bytes=10-11");
     assert.equal(calls[1].options.headers.Range, "bytes=10-11");
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("fetchMediaSource falls back to a ranged GET when HEAD is rejected", async () => {
+  const previousFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url, options) => {
+    calls.push({ url, options });
+    if (calls.length === 1) {
+      return new Response("head forbidden", { status: 403 });
+    }
+    return new Response(null, {
+      status: 206,
+      headers: {
+        "Accept-Ranges": "bytes",
+        "Content-Range": "bytes 0-0/100",
+        "Content-Length": "1",
+      },
+    });
+  };
+
+  try {
+    const response = await fetchMediaSource(
+      { headers: {}, method: "HEAD" },
+      "https://notion.example/media",
+      null,
+    );
+
+    assert.equal(response.status, 206);
+    assert.equal(calls[0].options.method, "HEAD");
+    assert.equal(calls[1].options.method, "GET");
+    assert.equal(calls[1].options.headers.Range, "bytes=0-0");
   } finally {
     global.fetch = previousFetch;
   }

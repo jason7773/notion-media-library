@@ -2799,7 +2799,7 @@ function DemoLanding({ error, loading, onGoogleLogin, items = [] }) {
                   controls
                   onPlay={() => pauseOtherMedia("audio")}
                   preload="metadata"
-                  src={selectedMusic.media.url}
+                  src={`${selectedMusic.media.url}?direct=1`}
                 />
               </div>
               <div className="mt-4 grid gap-2">
@@ -2832,7 +2832,7 @@ function DemoLanding({ error, loading, onGoogleLogin, items = [] }) {
                 controls
                 onPlay={() => pauseOtherMedia("video")}
                 preload="metadata"
-                src={selectedVideo.media.url}
+                src={`${selectedVideo.media.url}?direct=1`}
               >
                 {selectedVideo.subtitles?.map((subtitle) => (
                   <track
