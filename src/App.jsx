@@ -1326,7 +1326,7 @@ function MoviesHome({ continueItems = [], onRemoveProgress, onResetProgress, onS
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {seriesGroups.series.map((group) => {
-              const representative = group.videos.find((video) => video.cover) || group.videos[0];
+              const representative = group.videos.find((video) => video.coverUrl || video.cover) || group.videos[0];
               const readyEpisodes = group.videos.filter((video) => video.video?.url).length;
               const yearRange = [
                 Math.min(...group.videos.map((video) => video.year || Number.MAX_SAFE_INTEGER)),
@@ -4581,11 +4581,12 @@ export default function App() {
       return;
     }
 
+    const artworkUrl = getCoverUrl(currentTrack.album);
     navigator.mediaSession.metadata = new MediaMetadata({
       title: currentTrack.title,
       artist: currentTrack.album.artist,
       album: currentTrack.album.title,
-      artwork: currentTrack.album.cover ? [{ src: getCoverUrl(currentTrack.album), sizes: "512x512", type: "image/webp" }] : [],
+      artwork: artworkUrl ? [{ src: artworkUrl, sizes: "512x512", type: "image/webp" }] : [],
     });
     navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
     const handlers = [

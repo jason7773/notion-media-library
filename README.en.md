@@ -1,9 +1,24 @@
 # Notion Media Library
 
+[![CI](https://github.com/jason7773/notion-media-library/actions/workflows/ci.yml/badge.svg)](https://github.com/jason7773/notion-media-library/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Live Demo](https://img.shields.io/badge/demo-online-brightgreen.svg)](https://notion-based-vedio-music-web.web.app/)
+
 A deployable React media library backed by Notion data sources and Firebase.
 The app reads music albums, FLAC tracks, movies, posters, subtitles, and
 temporary Notion file URLs through a Firebase HTTP Function so the Notion token
 never reaches the browser.
+
+## Live Demo and Release Status
+
+- **Live Demo: <https://notion-based-vedio-music-web.web.app/>**
+- **Public source: <https://github.com/jason7773/notion-media-library>**
+
+As of 2026-09-24, the public repository, MIT license, GitHub Actions CI, and Firebase Demo are online. The current release passed CI, 37 local tests, and a production build; the live Demo was also verified to load and play two albums and two videos.
+
+The Demo requires no sign-in and reads separate public Notion data sources. It is not a mirror of the private library. Guest progress, preferences, wishlist entries, and issue reports stay in the browser; the private catalog, admin tools, and Firestore data still require an invited Google account.
+
+Dependency audit status: the root/frontend `npm audit` reports zero known vulnerabilities. Functions still reports eight moderate findings, all in the transitive `uuid` chain below `firebase-admin`, with no critical or high findings. `firebase-functions` 7.2.5 does not yet support `firebase-admin` 14, so the project keeps a supported peer combination instead of forcing an incompatible major upgrade and will update when upstream support is available.
 
 ```text
 Browser
@@ -40,6 +55,8 @@ the video player can load them consistently.
   `VITE_GA_MEASUREMENT_ID`.
 - Guest Demo uses the same music/video browsing and player UI, backed by
   separate Demo Music and Demo Video data sources.
+- Demo catalog responses expose only controlled `/api/demo/**` asset paths,
+  not raw temporary Notion media or cover URLs.
 - Demo progress, preferences, wishlist, and issue reports stay in versioned
   browser storage and are clearly marked as local-only; no admin console is
   exposed to guests.
@@ -50,7 +67,7 @@ licensed to redistribute when creating a showcase.
 
 ## Stack
 
-- React 19, Vite 6, Tailwind CSS 4.
+- React 19, Vite 8, Tailwind CSS 4.
 - Firebase Hosting, Firebase Auth, Firestore, Cloud Functions v2.
 - Firebase Admin SDK on the backend.
 - Notion API data sources.

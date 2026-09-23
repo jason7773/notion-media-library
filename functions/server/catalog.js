@@ -113,7 +113,7 @@ export function mapAlbum(page, options = {}) {
     artist: artist || "Unknown artist",
     year: readProperty(properties, "Year")?.number ?? null,
     genre: readProperty(properties, "Genre")?.select?.name || null,
-    cover,
+    cover: options.demo ? null : cover,
     ...(options.demo && cover ? { coverUrl: `/api/demo/cover/${encodeURIComponent(page.id)}` } : {}),
     coverVersion: page.last_edited_time || null,
   };
@@ -162,7 +162,7 @@ export function mapVideo(page, options = {}) {
     genre: genres[0] || null,
     series,
     seriesOrder: readProperty(properties, "Series Order")?.number ?? null,
-    cover,
+    cover: demo ? null : cover,
     ...(demo && cover ? { coverUrl: `${apiPrefix}/video-cover/${encodeURIComponent(page.id)}` } : {}),
     createdAt: page.created_time || null,
     coverVersion: page.last_edited_time || null,

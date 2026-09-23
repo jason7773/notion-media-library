@@ -51,7 +51,7 @@ test("demo music catalog exposes only published albums belonging to its source",
   global.fetch = async (url) => {
     assert.match(String(url), new RegExp(`/data_sources/${dataSourceId}/query$`));
     return new Response(JSON.stringify({ results: [
-      { id: "published", parent: { type: "data_source_id", data_source_id: dataSourceId }, properties: { Name: { title: [{ plain_text: "Published Album" }] }, Published: { checkbox: true } } },
+      { id: "published", parent: { type: "data_source_id", data_source_id: dataSourceId }, properties: { Name: { title: [{ plain_text: "Published Album" }] }, Published: { checkbox: true }, Cover: { files: [{ type: "file", name: "cover.png", file: { url: "https://notion.example/music-cover.png" } }] } } },
       { id: "hidden", parent: { type: "data_source_id", data_source_id: dataSourceId }, properties: { Name: { title: [{ plain_text: "Hidden Album" }] }, Published: { checkbox: false } } },
       { id: "foreign", parent: { type: "data_source_id", data_source_id: "other-source" }, properties: { Name: { title: [{ plain_text: "Foreign Album" }] }, Published: { checkbox: true } } },
     ], has_more: false }), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -62,7 +62,9 @@ test("demo music catalog exposes only published albums belonging to its source",
     const albums = JSON.parse(res.body);
     assert.equal(res.statusCode, 200);
     assert.deepEqual(albums.map((album) => album.id), ["published"]);
-    assert.equal(albums[0].coverUrl, undefined);
+    assert.equal(albums[0].cover, null);
+    assert.equal(albums[0].coverUrl, "/api/demo/cover/published");
+    assert.doesNotMatch(res.body, /notion\.example/);
   } finally {
     global.fetch = previousFetch;
     if (previousToken === undefined) delete process.env.NOTION_TOKEN; else process.env.NOTION_TOKEN = previousToken;
@@ -174,9 +176,11 @@ test("demo video catalog exposes only published videos from its separate source 
     const videos = JSON.parse(res.body);
     assert.equal(res.statusCode, 200);
     assert.deepEqual(videos.map((video) => video.id), ["published-video"]);
+    assert.equal(videos[0].cover, null);
     assert.equal(videos[0].video.url, "/api/demo/video-stream/published-video?v=2026-09-23T00%3A00%3A00Z");
     assert.equal(videos[0].coverUrl, "/api/demo/video-cover/published-video");
     assert.equal(videos[0].subtitles[0].url, "/api/demo/video-subtitle/published-video/0?v=2026-09-23T00%3A00%3A00Z");
+    assert.doesNotMatch(res.body, /notion\.example/);
   } finally {
     global.fetch = previousFetch;
     if (previousToken === undefined) delete process.env.NOTION_TOKEN; else process.env.NOTION_TOKEN = previousToken;

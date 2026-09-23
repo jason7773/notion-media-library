@@ -2,15 +2,28 @@
 
 [![CI](https://github.com/jason7773/notion-media-library/actions/workflows/ci.yml/badge.svg)](https://github.com/jason7773/notion-media-library/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Live Demo](https://img.shields.io/badge/demo-online-brightgreen.svg)](https://notion-based-vedio-music-web.web.app/)
 
-一套可自行部署的私人影音資料庫。你在 Notion 管理專輯、曲目、影片、封面與字幕；網站使用 React/Vite 顯示媒體庫，由 Firebase Authentication、Cloud Functions 與 Firestore 處理登入、權限、播放進度及管理功能。
+一套已公開原始碼、可自行部署的私人影音資料庫。你在 Notion 管理專輯、曲目、影片、封面與字幕；網站使用 React/Vite 顯示媒體庫，由 Firebase Authentication、Cloud Functions 與 Firestore 處理登入、權限、播放進度及管理功能。
 
 Notion integration token 只存在後端。瀏覽器不會取得 token，也不能直接讀寫 Firestore；媒體播放前，後端會重新確認頁面屬於指定的 Notion data source。
 
 > 本專案的 MIT License 只授權程式碼。請只使用你擁有或已取得播放、展示及再散布授權的音樂、影片、封面與字幕。
 
+## 線上 Demo 與公開狀態
+
+- **線上 Demo：<https://notion-based-vedio-music-web.web.app/>**
+- **公開原始碼：<https://github.com/jason7773/notion-media-library>**
+
+截至 2026-09-24，公開 repository、MIT License、GitHub Actions CI 與 Firebase Demo 均已上線。本次驗收確認最新版 CI 成功、本機 37 項測試通過、production build 成功，且 Demo 可載入並播放 2 張專輯與 2 部影片。
+
+Demo 不需登入，內容來自獨立的公開 Notion data source，不是私人媒體庫的鏡像。訪客的播放進度、偏好、願望清單與問題回報只留在瀏覽器；私人目錄、管理功能與 Firestore 資料仍需通過邀請及 Google 登入。
+
+相依性稽核結果：前端／根目錄 `npm audit` 為 0 個已知弱點；Functions 尚有 8 個 moderate，全部來自 `firebase-admin` 的間接 `uuid` 相依鏈，目前沒有 critical 或 high。`firebase-functions` 7.2.5 尚未支援 `firebase-admin` 14，因此本專案不以破壞 peer compatibility 的方式強制升級，待上游支援後再更新。
+
 ## 目錄
 
+- [線上 Demo 與公開狀態](#線上-demo-與公開狀態)
 - [這個專案能做什麼](#這個專案能做什麼)
 - [技術細節與系統架構](#技術細節與系統架構)
 - [部署前準備](#部署前準備)
@@ -44,6 +57,7 @@ Notion integration token 只存在後端。瀏覽器不會取得 token，也不�
 - 訪客使用與私人媒體庫相同的專輯、影片、搜尋、播放器、字幕與續播介面，內容讀取獨立的 Demo Music／Demo Video data source。
 - Demo Music 與私人音樂使用相同 schema，並在專輯增加 `Published` 勾選；勾選後該專輯及其全部曲目會公開。
 - Demo Video 與私人影片使用相同 schema，並在影片增加 `Published` 勾選；Demo API 不讀取私人目錄，也不建立 Firebase 匿名帳號。
+- Demo catalog 不回傳 Notion 原始暫時媒體或封面 URL；前端只使用受控的 `/api/demo/**` 路徑。
 - Demo 的進度、播放器偏好、願望清單與影片回報只存訪客瀏覽器，介面會標明不會送到管理員；管理後台不開放給訪客。
 - 登入並通過邀請核准的帳號會切換到私人媒體庫；未核准帳號留在 Demo。
 
@@ -51,7 +65,7 @@ Notion integration token 只存在後端。瀏覽器不會取得 token，也不�
 
 | 層級 | 技術 | 責任 |
 | --- | --- | --- |
-| 前端 | React 19、Vite 6、Tailwind CSS 4 | 音樂／影片介面、Firebase 登入、播放器 |
+| 前端 | React 19、Vite 8、Tailwind CSS 4 | 音樂／影片介面、Firebase 登入、播放器 |
 | 靜態網站 | Firebase Hosting | 提供 `dist/`，並把 `/api/**` rewrite 到 Function |
 | 後端 | Cloud Functions v2、Node.js 22 | 驗證 session、查詢 Notion、代理封面／字幕／串流 |
 | 身分 | Firebase Authentication | Google 登入與 token 驗證 |
@@ -82,7 +96,7 @@ flowchart LR
 重要運作方式：
 
 - 音樂目錄回應不包含可長期保存的媒體 URL；選擇專輯後才重新讀取曲目 URL。
-- 影片與 Demo 播放前會重新驗證 Notion page 所屬 data source 和公開／使用者權限。
+- 影片與 Demo 播放前會重新驗證 Notion page 所屬 data source 和公開／使用者權限；公開影片通過驗證後才取得短效 Notion URL。
 - 串流支援 HTTP Range；Notion 暫時 URL 過期時，後端會重新取得後再重試。
 - 目錄、頁面與 Demo 預設分別使用約 24 小時、10 分鐘及 60 秒的 instance-local cache。剛更新 Notion 時，畫面不一定立即變更。
 - Function 設定在 `us-central1`、`maxInstances: 10`、最長請求 3600 秒。

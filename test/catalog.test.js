@@ -51,6 +51,7 @@ test("demo album, track, video, and subtitle URLs use the shared catalog model",
       Cover: { files: [{ type: "file", file: { url: "https://example.test/cover.jpg" } }] },
     },
   }, { demo: true });
+  assert.equal(album.cover, null);
   assert.equal(album.coverUrl, "/api/demo/cover/demo-album");
 
   const tracks = mapTracks([{
@@ -71,6 +72,7 @@ test("demo album, track, video, and subtitle URLs use the shared catalog model",
       Subtitles: { files: [{ type: "file", name: "demo.zh-Hant.vtt", file: { url: "https://example.test/demo.vtt" } }] },
     },
   }, { proxyVideo: true, proxySubtitles: true, demo: true, apiPrefix: "/api/demo" });
+  assert.equal(video.cover, null);
   assert.equal(video.video.url, "/api/demo/video-stream/demo-video?v=2026-09-23");
   assert.equal(video.coverUrl, "/api/demo/video-cover/demo-video");
   assert.equal(video.subtitles[0].url, "/api/demo/video-subtitle/demo-video/0?v=2026-09-23");
