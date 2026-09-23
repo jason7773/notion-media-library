@@ -398,6 +398,14 @@ export async function handleDemoMediaAsset(req, res, kind, pageId, blockId = "")
         return ensureDemoVideo(freshPage).video.url;
       };
     }
+    if (kind === "video") {
+      setCors(req, res);
+      res.statusCode = 302;
+      res.setHeader("Cache-Control", "private, no-store");
+      res.setHeader("Location", sourceUrl);
+      res.end();
+      return;
+    }
     const source = await fetchMediaSource(req, sourceUrl, refreshSource);
     if (!source.ok && source.status !== 416) {
       const error = new Error(`Unable to load demo media (${source.status}).`);

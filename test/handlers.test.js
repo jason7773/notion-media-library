@@ -210,6 +210,45 @@ test("demo media rejects unpublished and cross-source pages before streaming", a
   }
 });
 
+test("published legacy demo videos redirect to the freshly validated signed URL", async () => {
+  const previousFetch = global.fetch;
+  const previousToken = process.env.NOTION_TOKEN;
+  const previousLegacy = process.env.NOTION_DEMO_DATA_SOURCE_ID;
+  const previousVideo = process.env.NOTION_DEMO_VIDEO_DATA_SOURCE_ID;
+  const sourceId = `legacy-video-stream-${Date.now()}`;
+  const pageId = `legacy-video-page-${Date.now()}`;
+  process.env.NOTION_TOKEN = "test-token";
+  process.env.NOTION_DEMO_DATA_SOURCE_ID = sourceId;
+  delete process.env.NOTION_DEMO_VIDEO_DATA_SOURCE_ID;
+  let requests = 0;
+  global.fetch = async () => {
+    requests += 1;
+    return new Response(JSON.stringify({
+      id: pageId,
+      parent: { type: "data_source_id", data_source_id: sourceId },
+      properties: {
+        Name: { title: [{ plain_text: "Legacy video" }] },
+        Type: { select: { name: "Video" } },
+        Published: { checkbox: true },
+        Media: { files: [{ type: "file", name: "video.mp4", file: { url: "https://notion.example/video.mp4?signature=fresh" } }] },
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  try {
+    const res = mockResponse();
+    await handleDemoMediaAsset({ method: "GET", headers: {}, url: `/api/demo/video-stream/${pageId}`, ip: "198.51.100.62" }, res, "video", pageId);
+    assert.equal(res.statusCode, 302);
+    assert.equal(res.headers.Location, "https://notion.example/video.mp4?signature=fresh");
+    assert.equal(res.headers["Cache-Control"], "private, no-store");
+    assert.equal(requests, 1);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousToken === undefined) delete process.env.NOTION_TOKEN; else process.env.NOTION_TOKEN = previousToken;
+    if (previousLegacy === undefined) delete process.env.NOTION_DEMO_DATA_SOURCE_ID; else process.env.NOTION_DEMO_DATA_SOURCE_ID = previousLegacy;
+    if (previousVideo === undefined) delete process.env.NOTION_DEMO_VIDEO_DATA_SOURCE_ID; else process.env.NOTION_DEMO_VIDEO_DATA_SOURCE_ID = previousVideo;
+  }
+});
+
 test("fetchMediaSource forwards range requests and retries expired signed URLs", async () => {
   const previousFetch = global.fetch;
   const calls = [];
