@@ -117,8 +117,16 @@ export async function queryAllVideos() {
   return queryAllPages(getRequiredEnv("NOTION_VIDEO_DATA_SOURCE_ID"));
 }
 
-export async function queryAllDemoMedia() {
-  const dataSourceId = String(process.env.NOTION_DEMO_DATA_SOURCE_ID || "").trim();
+export async function queryAllDemoAlbums() {
+  const dataSourceId = getDemoMusicDataSourceId();
+  if (!dataSourceId) {
+    return [];
+  }
+  return queryAllPagesWithTtl(dataSourceId, demoCatalogCacheTtlMs());
+}
+
+export async function queryAllDemoVideos() {
+  const dataSourceId = getDemoVideoDataSourceId();
   if (!dataSourceId) {
     return [];
   }
@@ -173,6 +181,26 @@ export function getVideoDataSourceId() {
   return getRequiredEnv("NOTION_VIDEO_DATA_SOURCE_ID");
 }
 
-export function getDemoDataSourceId() {
-  return String(process.env.NOTION_DEMO_DATA_SOURCE_ID || "").trim();
+function normalizedDataSourceId(value) {
+  return String(value || "").replaceAll("-", "").toLowerCase();
+}
+
+function getSafeDemoDataSourceId(name, otherDemoName) {
+  const value = String(process.env[name] || "").trim();
+  const normalized = normalizedDataSourceId(value);
+  if (!normalized) return "";
+  const privateSources = [process.env.NOTION_DATA_SOURCE_ID, process.env.NOTION_VIDEO_DATA_SOURCE_ID];
+  const demoSources = [process.env[otherDemoName]];
+  if ([...privateSources, ...demoSources].some((candidate) => normalizedDataSourceId(candidate) === normalized)) {
+    return "";
+  }
+  return value;
+}
+
+export function getDemoMusicDataSourceId() {
+  return getSafeDemoDataSourceId("NOTION_DEMO_MUSIC_DATA_SOURCE_ID", "NOTION_DEMO_VIDEO_DATA_SOURCE_ID");
+}
+
+export function getDemoVideoDataSourceId() {
+  return getSafeDemoDataSourceId("NOTION_DEMO_VIDEO_DATA_SOURCE_ID", "NOTION_DEMO_MUSIC_DATA_SOURCE_ID");
 }

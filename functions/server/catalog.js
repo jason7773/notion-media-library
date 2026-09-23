@@ -20,10 +20,6 @@ function readProperty(properties, name) {
   return properties?.[name];
 }
 
-function readRichTextProperty(properties, name) {
-  return readPlainText(readProperty(properties, name)?.rich_text);
-}
-
 function readSelectNames(property) {
   if (property?.select?.name) {
     return [property.select.name];
@@ -32,10 +28,6 @@ function readSelectNames(property) {
     return property.multi_select.map((item) => item.name).filter(Boolean);
   }
   return [];
-}
-
-function readFileProperty(properties, name) {
-  return readProperty(properties, name)?.files?.[0] || null;
 }
 
 function parseSubtitleLanguage(fileName) {
@@ -101,7 +93,7 @@ export function isFlacBlock(block) {
   return block.type === "file" && block.file?.name?.toLowerCase().endsWith(".flac");
 }
 
-export function mapAlbum(page) {
+export function mapAlbum(page, options = {}) {
   const properties = page.properties || {};
   const title = readPlainText(readProperty(properties, "Name")?.title);
   const artist = readPlainText(readProperty(properties, "Artist")?.rich_text);
@@ -114,18 +106,19 @@ export function mapAlbum(page) {
     year: readProperty(properties, "Year")?.number ?? null,
     genre: readProperty(properties, "Genre")?.select?.name || null,
     cover,
+    ...(options.demo && cover ? { coverUrl: `/api/demo/cover/${encodeURIComponent(page.id)}` } : {}),
     coverVersion: page.last_edited_time || null,
   };
 }
 
-function buildSubtitleUrl(pageId, index, version) {
+function buildSubtitleUrl(pageId, index, version, apiPrefix = "/api") {
   const search = new URLSearchParams({ v: version || "1" });
-  return `/api/video-subtitle/${encodeURIComponent(pageId)}/${index}?${search.toString()}`;
+  return `${apiPrefix}/video-subtitle/${encodeURIComponent(pageId)}/${index}?${search.toString()}`;
 }
 
-function buildVideoStreamUrl(pageId, version) {
+function buildVideoStreamUrl(pageId, version, apiPrefix = "/api") {
   const search = new URLSearchParams({ v: version || "1" });
-  return `/api/video-stream/${encodeURIComponent(pageId)}?${search.toString()}`;
+  return `${apiPrefix}/video-stream/${encodeURIComponent(pageId)}?${search.toString()}`;
 }
 
 export function mapVideo(page, options = {}) {
@@ -133,6 +126,8 @@ export function mapVideo(page, options = {}) {
     includeProxyVideoUrl = false,
     proxySubtitles = false,
     proxyVideo = false,
+    demo = false,
+    apiPrefix = "/api",
   } = options;
   const properties = page.properties || {};
   const title = readPlainText(readProperty(properties, "Name")?.title);
@@ -160,6 +155,7 @@ export function mapVideo(page, options = {}) {
     series,
     seriesOrder: readProperty(properties, "Series Order")?.number ?? null,
     cover,
+    ...(demo && cover ? { coverUrl: `${apiPrefix}/video-cover/${encodeURIComponent(page.id)}` } : {}),
     createdAt: page.created_time || null,
     coverVersion: page.last_edited_time || null,
     updatedAt: page.last_edited_time || null,
@@ -167,10 +163,10 @@ export function mapVideo(page, options = {}) {
       ? {
           name: readFileName(videoFile),
           ...(includeProxyVideoUrl || proxyVideo
-            ? { proxyUrl: buildVideoStreamUrl(page.id, page.last_edited_time) }
+            ? { proxyUrl: buildVideoStreamUrl(page.id, page.last_edited_time, apiPrefix) }
             : {}),
           url: proxyVideo
-            ? buildVideoStreamUrl(page.id, page.last_edited_time)
+            ? buildVideoStreamUrl(page.id, page.last_edited_time, apiPrefix)
             : readFileUrl(videoFile),
         }
       : null,
@@ -182,7 +178,7 @@ export function mapVideo(page, options = {}) {
         return {
           name,
           url: proxySubtitles
-            ? buildSubtitleUrl(page.id, index, page.last_edited_time)
+            ? buildSubtitleUrl(page.id, index, page.last_edited_time, apiPrefix)
             : sourceUrl,
           ...parseSubtitleLanguage(name),
         };
@@ -193,104 +189,24 @@ export function mapVideo(page, options = {}) {
   };
 }
 
-export function mapTrack(block, index) {
+export function mapTrack(block, index, options = {}) {
   const media = block[block.type];
+  const sourceUrl = readFileUrl(media);
   const fileName = media.name || "";
   const extension = fileName.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() || null;
   return {
     id: block.id,
     title: readPlainText(media.caption) || media.name || `Track ${index + 1}`,
-    url: readFileUrl(media),
+    url: options.demo && options.albumId
+      ? `/api/demo/track/${encodeURIComponent(options.albumId)}/${encodeURIComponent(block.id)}`
+      : sourceUrl,
     format: extension || block.type,
   };
 }
 
-function buildDemoAssetUrl(kind, pageId, index) {
-  const encodedPageId = encodeURIComponent(pageId);
-  if (kind === "subtitle") {
-    return `/api/demo/subtitle/${encodedPageId}/${index}`;
-  }
-  return `/api/demo/${kind}/${encodedPageId}`;
-}
-
-export function mapDemoItem(page, options = {}) {
-  const properties = page?.properties || {};
-  const published = readProperty(properties, "Published")?.checkbox === true;
-  const type = String(readProperty(properties, "Type")?.select?.name || "").trim().toLowerCase();
-  if (!published || !["music", "video"].includes(type)) {
-    return null;
-  }
-
-  const mediaFile = readFileProperty(properties, "Media");
-  const mediaUrl = readFileUrl(mediaFile);
-  if (!mediaFile || !mediaUrl) {
-    return null;
-  }
-
-  const title = readPlainText(readProperty(properties, "Name")?.title).trim();
-  if (!title) {
-    return null;
-  }
-
-  const coverFile = readFileProperty(properties, "Cover");
-  const coverSourceUrl = readFileUrl(coverFile);
-
-  const fileName = readFileName(mediaFile);
-  const extension = fileName.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() || "";
-  const allowed = type === "video"
-    ? new Set(["mp4", "webm", "m4v"])
-    : new Set(["flac", "mp3", "m4a", "ogg", "oga", "wav", "aac"]);
-  if (!allowed.has(extension)) {
-    return null;
-  }
-
-  const subtitleFiles = readProperty(properties, "Subtitles")?.files || [];
-  const subtitles = type === "video"
-    ? subtitleFiles
-        .filter((file) => readFileName(file).toLowerCase().endsWith(".vtt") && readFileUrl(file))
-        .map((file, index) => ({
-          name: readFileName(file),
-          ...parseSubtitleLanguage(readFileName(file)),
-          url: buildDemoAssetUrl("subtitle", page.id, index),
-          ...(options.includeSourceUrls ? { sourceUrl: readFileUrl(file) } : {}),
-        }))
-    : [];
-
-  return {
-    id: page.id,
-    title,
-    type,
-    artist: readRichTextProperty(properties, "Artist") || null,
-    description: readRichTextProperty(properties, "Description") || null,
-    credit: readRichTextProperty(properties, "Credit") || null,
-    sourceUrl: readProperty(properties, "Source URL")?.url || null,
-    order: readProperty(properties, "Order")?.number ?? null,
-    coverUrl: coverSourceUrl
-      ? buildDemoAssetUrl("cover", page.id)
-      : null,
-    ...(options.includeSourceUrls && coverSourceUrl
-      ? { coverSourceUrl }
-      : {}),
-    media: {
-      name: fileName || "demo-media",
-      url: buildDemoAssetUrl("media", page.id),
-      ...(options.includeSourceUrls ? { sourceUrl: mediaUrl } : {}),
-    },
-    subtitles,
-    updatedAt: page.last_edited_time || null,
-  };
-}
-
-export function mapDemoItems(pages) {
+export function mapAlbums(pages, options = {}) {
   return pages
-    .map((page) => mapDemoItem(page))
-    .filter(Boolean)
-    .sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER) || a.title.localeCompare(b.title));
-}
-
-export function mapAlbums(pages) {
-  return pages
-    .map(mapAlbum)
+    .map((page) => mapAlbum(page, options))
     .sort((a, b) => (b.year || 0) - (a.year || 0) || a.title.localeCompare(b.title));
 }
 
@@ -300,22 +216,26 @@ export function mapVideos(pages, options = {}) {
     .sort((a, b) => (b.year || 0) - (a.year || 0) || a.title.localeCompare(b.title));
 }
 
-export function mapTracks(blocks) {
+export function mapTracks(blocks, options = {}) {
   return blocks
     .filter(
       (block) =>
         block.type === "audio" ||
         isFlacBlock(block),
     )
-    .map(mapTrack)
+    .map((block, index) => mapTrack(block, index, options))
     .filter((track) => track.url);
 }
 
-export function mapLibraryTracks(album, blocks) {
-  return mapTracks(blocks).map(({ url, ...track }) => ({
+export function mapLibraryTracks(album, blocks, options = {}) {
+  return mapTracks(blocks, { ...options, albumId: album.id }).map(({ url, ...track }) => ({
     ...track,
     album,
   }));
+}
+
+export function isPublishedPage(page) {
+  return page?.properties?.Published?.checkbox === true;
 }
 
 export function pageBelongsToDataSource(page, dataSourceId) {

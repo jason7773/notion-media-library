@@ -41,9 +41,11 @@ Notion integration token 只存在後端。瀏覽器不會取得 token，也不�
 
 ### 公開 Demo（可選）
 
-- 未登入訪客只會看到獨立 `Demo Media` data source 中 `Published=true` 的項目。
-- Demo 不會讀取私人音樂／影片 data source，也不會建立 Firebase 匿名帳號。
-- 適合放自製或有明確展示授權的短影音，讓訪客在登入前了解專案。
+- 訪客使用與私人媒體庫相同的專輯、影片、搜尋、播放器、字幕與續播介面，內容讀取獨立的 Demo Music／Demo Video data source。
+- Demo Music 與私人音樂使用相同 schema，並在專輯增加 `Published` 勾選；勾選後該專輯及其全部曲目會公開。
+- Demo Video 與私人影片使用相同 schema，並在影片增加 `Published` 勾選；Demo API 不讀取私人目錄，也不建立 Firebase 匿名帳號。
+- Demo 的進度、播放器偏好、願望清單與影片回報只存訪客瀏覽器，介面會標明不會送到管理員；管理後台不開放給訪客。
+- 登入並通過邀請核准的帳號會切換到私人媒體庫；未核准帳號留在 Demo。
 
 ## 技術細節與系統架構
 
@@ -168,27 +170,16 @@ Notion 官方操作可參考 [建立 internal connection](https://www.notion.com
 
 舊資料的 `Vedio` 拼字仍可使用，但新部署請使用正確的 `Video`。瀏覽器通常不能直接播放 MKV；請先轉成 MP4、WebM 或其他瀏覽器支援格式。字幕必須是 WebVTT（`.vtt`）。
 
-### 5. 建立 Demo Media data source（可選）
+### 5. 建立 Demo Music 與 Demo Video data source（可選）
 
-不需要公開展示時，可以略過這一步，並把 `NOTION_DEMO_DATA_SOURCE_ID` 留空。
+要公開展示時，建立兩個獨立 data source，並把 Notion integration 加到兩者。兩個 Demo source 都必須與私人音樂／影片 source 使用不同 ID；若 ID 重複，Demo 會保持空白，避免誤公開私人目錄。
 
-| 屬性 | Notion 類型 | 必要 | 用途 |
-| --- | --- | --- | --- |
-| `Name` | Title | 是 | 展示名稱 |
-| `Type` | Select | 是 | 只能是 `Music` 或 `Video` |
-| `Media` | Files & media | 是 | 實際展示檔 |
-| `Published` | Checkbox | 是 | 只有勾選項目會公開 |
-| `Artist` | Text | 否 | 音樂演出者 |
-| `Cover` | Files & media | 否 | 封面 |
-| `Subtitles` | Files & media | 否 | Video 的 `.vtt` 字幕 |
-| `Description` | Text | 否 | 展示說明 |
-| `Order` | Number | 否 | 顯示順序 |
-| `Credit` | Text | 否 | 作者／授權標示 |
-| `Source URL` | URL | 否 | 素材來源或授權頁面 |
+- **Demo Music**：複製音樂 data source 的 schema，另外新增 `Published`（Checkbox）。每一列仍是一張專輯，專輯頁面中的 Audio／FLAC blocks 仍是曲目。勾選專輯會公開這張專輯與頁面內所有合法音訊檔。
+- **Demo Video**：複製影片 data source 的 schema，另外新增 `Published`（Checkbox）。只會公開勾選的影片頁及合法 MP4／WebM／M4V、封面與 WebVTT 字幕。
+- 沒有要公開某一類內容時，可將對應的 Demo data source ID 留空；網站仍使用同一套介面，該目錄顯示空狀態。
+- 只放自有或明確取得展示及公開播放授權的影音；Demo API 每次讀取曲目、影片、封面或字幕時都重新驗證來源與 Published 狀態。
 
-Demo 音訊支援 FLAC、MP3、M4A、OGG、OGA、WAV、AAC；影片支援 MP4、WebM、M4V。
-
-### 6. 取得三個 data source ID
+### 6. 取得 data source ID
 
 這裡需要的是 **data source ID**，不是整個 Notion 頁面網址，也不要把 token 當成 ID。新版 Notion database 可以包含一個或多個 data sources；請從 database/data source 的連結或 Notion API 回應中取得對應 UUID。
 
@@ -197,7 +188,8 @@ Demo 音訊支援 FLAC、MP3、M4A、OGG、OGA、WAV、AAC；影片支援 MP4、
 ```text
 NOTION_DATA_SOURCE_ID=音樂 data source ID
 NOTION_VIDEO_DATA_SOURCE_ID=影片 data source ID
-NOTION_DEMO_DATA_SOURCE_ID=Demo data source ID（可留空）
+NOTION_DEMO_MUSIC_DATA_SOURCE_ID=Demo Music data source ID（可留空）
+NOTION_DEMO_VIDEO_DATA_SOURCE_ID=Demo Video data source ID（可留空）
 ```
 
 如果部署後出現 Notion 404，優先檢查：ID 是否為 data source ID、connection 是否已加入該 database 頁面、以及 connection 是否屬於同一個 workspace。
@@ -223,7 +215,8 @@ cp .env.example .env
 NOTION_TOKEN=ntn_your_real_token
 NOTION_DATA_SOURCE_ID=your_music_data_source_id
 NOTION_VIDEO_DATA_SOURCE_ID=your_video_data_source_id
-NOTION_DEMO_DATA_SOURCE_ID=your_demo_data_source_id
+NOTION_DEMO_MUSIC_DATA_SOURCE_ID=your_demo_music_data_source_id
+NOTION_DEMO_VIDEO_DATA_SOURCE_ID=your_demo_video_data_source_id
 ALLOWED_ORIGINS=http://localhost:5173,https://YOUR_PROJECT_ID.web.app,https://YOUR_PROJECT_ID.firebaseapp.com
 ADMIN_EMAILS=your-google-account@example.com
 
@@ -278,7 +271,8 @@ firebase deploy --only firestore,functions
 | --- | --- |
 | `NOTION_DATA_SOURCE_ID` | 音樂 data source ID |
 | `NOTION_VIDEO_DATA_SOURCE_ID` | 影片 data source ID |
-| `NOTION_DEMO_DATA_SOURCE_ID` | Demo ID；不用 Demo 則留空 |
+| `NOTION_DEMO_MUSIC_DATA_SOURCE_ID` | Demo Music ID；不用公開音樂則留空 |
+| `NOTION_DEMO_VIDEO_DATA_SOURCE_ID` | Demo Video ID；不用公開影片則留空 |
 | `ALLOWED_ORIGINS` | `http://localhost:5173,https://PROJECT_ID.web.app,https://PROJECT_ID.firebaseapp.com` |
 | `ADMIN_EMAILS` | 第一位管理員的 Google 信箱；多個以逗號分隔 |
 
@@ -350,8 +344,9 @@ firebase deploy --only hosting
 
 ### 未登入訪客
 
-- 有設定 Demo 時，只能看到 `Published=true` 的展示素材。
-- 沒有設定 Demo 時，不會取得私人目錄；登入按鈕仍可供受邀使用者進入。
+- 使用與私人庫相同的媒體瀏覽及播放介面，只能看到各 Demo source 中 `Published=true` 的內容。
+- 播放進度、願望清單、回報及播放器偏好只存本機瀏覽器，不會送到管理員或 Firestore。
+- 未設定某一個 Demo source 時，對應目錄顯示空狀態；私人目錄仍不會被讀取。經核准的帳號登入後才會切換到私人庫。
 
 ## 更新、驗證與排錯
 
@@ -371,7 +366,8 @@ firebase deploy
 - `npm test` 全部通過。
 - `npm run build` 成功。
 - `git status` 沒有 `.env`、token、服務帳號或媒體檔。
-- `/api/demo` 只顯示 `Published=true` 的合法素材。
+- `/api/demo/albums` 與 `/api/demo/videos` 只顯示各自 Demo source 中 `Published=true` 的內容。
+- Demo 的影音、封面與字幕 API 會拒絕私人 source、未發布頁面及不屬於該專輯的曲目。
 - 管理員能登入，未邀請帳號會被拒絕。
 - 音樂、影片 Range、字幕、續播與登出都正常。
 - Firebase Functions logs 沒有持續的 401、403、404、429 或 5xx。

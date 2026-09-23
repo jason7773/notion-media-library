@@ -2,10 +2,12 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
   getDataSourceId,
-  getDemoDataSourceId,
+  getDemoMusicDataSourceId,
+  getDemoVideoDataSourceId,
   getVideoDataSourceId,
   queryAllAlbums,
-  queryAllDemoMedia,
+  queryAllDemoAlbums,
+  queryAllDemoVideos,
   queryAllVideos,
   retrieveAllBlockChildren,
   retrievePage,
@@ -27,13 +29,12 @@ import {
   isFlacBlock,
   mapAlbum,
   mapAlbums,
-  mapDemoItem,
-  mapDemoItems,
   mapLibraryTracks,
   mapTrack,
   mapTracks,
   mapVideo,
   mapVideos,
+  isPublishedPage,
   pageBelongsToDataSource,
 } from "./catalog.js";
 
@@ -151,166 +152,223 @@ async function authenticatedUser(req, res, feature) {
   }
 }
 
-function ensureDemoConfigured() {
-  const dataSourceId = getDemoDataSourceId();
-  if (!dataSourceId) {
-    const error = new Error("Demo content is not configured.");
-    error.status = 404;
-    throw error;
-  }
-  return dataSourceId;
+function demoSourceFor(kind) {
+  return kind === "music" ? getDemoMusicDataSourceId() : getDemoVideoDataSourceId();
 }
 
-function ensurePublishedDemoPage(page, dataSourceId, expectedType) {
-  if (!page || !pageBelongsToDataSource(page, dataSourceId)) {
+function ensurePublishedPage(page, kind) {
+  const dataSourceId = demoSourceFor(kind);
+  if (!dataSourceId || !pageBelongsToDataSource(page, dataSourceId) || !isPublishedPage(page)) {
     const error = new Error("Demo item not found.");
     error.status = 404;
     throw error;
   }
-  const item = mapDemoItem(page, { includeSourceUrls: true });
-  if (!item || (expectedType && item.type !== expectedType)) {
-    const error = new Error("Demo item not found.");
+  return page;
+}
+
+function ensureAudioBlock(block) {
+  if (!block || !(block.type === "audio" || isFlacBlock(block))) {
+    const error = new Error("Demo track not found.");
     error.status = 404;
     throw error;
   }
-  return item;
+  const mappedTrack = mapTrack(block, 0);
+  const sourceName = block[block.type]?.name || mappedTrack.url?.split("?")[0].split("/").pop() || "";
+  const extension = sourceName.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() || "";
+  const track = { ...mappedTrack, format: extension || mappedTrack.format };
+  if (!track.url || !["flac", "mp3", "m4a", "ogg", "oga", "wav", "aac"].includes(track.format.toLowerCase())) {
+    const error = new Error("Demo track not found.");
+    error.status = 404;
+    throw error;
+  }
+  return track;
 }
 
-export async function handleDemo(req, res) {
-  if (handleOptions(req, res)) {
-    return;
+function ensureDemoVideo(page) {
+  const video = mapVideo(page);
+  if (!video.video?.url || !/\.(mp4|webm|m4v)$/i.test(video.video.name)) {
+    const error = new Error("Demo video not found.");
+    error.status = 404;
+    throw error;
   }
+  return video;
+}
+
+export async function handleDemoCatalog(req, res, kind) {
+  if (handleOptions(req, res)) return;
   if (req.method !== "GET") {
     sendJson(req, res, 405, { error: "Method not allowed." });
     return;
   }
-
   try {
-    enforceDemoReadRateLimit(req, "catalog", DEMO_CATALOG_LIMIT);
-    const dataSourceId = getDemoDataSourceId();
-    if (!dataSourceId) {
-      sendJson(req, res, 200, { enabled: false, items: [] }, "no-store");
+    enforceDemoReadRateLimit(req, `catalog:${kind}`, DEMO_CATALOG_LIMIT);
+    if (kind === "albums") {
+      const sourceId = getDemoMusicDataSourceId();
+      const pages = sourceId ? await queryAllDemoAlbums() : [];
+      sendJson(req, res, 200, mapAlbums(pages.filter((page) => pageBelongsToDataSource(page, sourceId) && isPublishedPage(page)), { demo: true }), DEMO_CATALOG_CACHE);
       return;
     }
-    const pages = await queryAllDemoMedia();
-    const items = mapDemoItems(pages);
-    sendJson(req, res, 200, { enabled: true, items }, DEMO_CATALOG_CACHE);
+    if (kind === "library") {
+      const sourceId = getDemoMusicDataSourceId();
+      const pages = sourceId ? await queryAllDemoAlbums() : [];
+      const albums = mapAlbums(pages.filter((page) => pageBelongsToDataSource(page, sourceId) && isPublishedPage(page)), { demo: true });
+      const tracks = await mapWithConcurrency(albums, LIBRARY_ALBUM_CONCURRENCY, async (album) => {
+        const blocks = await retrieveAllBlockChildren(album.id);
+        return mapLibraryTracks(album, blocks, { demo: true });
+      });
+      sendJson(req, res, 200, tracks.flat(), DEMO_CATALOG_CACHE);
+      return;
+    }
+    if (kind === "videos") {
+      const sourceId = getDemoVideoDataSourceId();
+      const pages = sourceId ? await queryAllDemoVideos() : [];
+      const publishedPages = pages.filter((page) => pageBelongsToDataSource(page, sourceId) && isPublishedPage(page));
+      const videos = mapVideos(publishedPages, { proxyVideo: true, proxySubtitles: true, demo: true, apiPrefix: "/api/demo" })
+        .filter((video) => video.video?.name && /\.(mp4|webm|m4v)$/i.test(video.video.name));
+      sendJson(req, res, 200, videos, DEMO_CATALOG_CACHE);
+      return;
+    }
+    sendJson(req, res, 404, { error: "Demo catalog not found." });
   } catch (error) {
     sendError(req, res, error);
   }
 }
 
-export async function handleDemoMedia(req, res, pageId) {
-  if (handleOptions(req, res)) {
+export async function handleDemoPage(req, res, kind, pageId) {
+  if (handleOptions(req, res)) return;
+  if (req.method !== "GET" || !pageId) {
+    sendJson(req, res, req.method === "GET" ? 400 : 405, { error: req.method === "GET" ? "Missing demo page ID." : "Method not allowed." });
     return;
   }
-  if (req.method !== "GET" && req.method !== "HEAD") {
-    sendJson(req, res, 405, { error: "Method not allowed." });
-    return;
-  }
-  if (!pageId) {
-    sendJson(req, res, 400, { error: "Missing demo page ID." });
-    return;
-  }
-
   try {
     enforceDemoReadRateLimit(req, "asset", DEMO_ASSET_LIMIT);
-    const dataSourceId = ensureDemoConfigured();
-    const item = ensurePublishedDemoPage(
-      await retrievePage(pageId, { fresh: true }),
-      dataSourceId,
-    );
-    const direct = new URL(req.url || "/", "http://localhost").searchParams.get("direct") === "1";
-    if (direct) {
-      setCors(req, res);
-      res.statusCode = 302;
-      res.setHeader("Cache-Control", "private, no-store");
-      res.setHeader("Location", item.media.sourceUrl);
-      res.end();
+    const musicPage = kind === "album" || kind === "playlist";
+    const page = ensurePublishedPage(await retrievePage(pageId, { fresh: true }), musicPage ? "music" : "video");
+    if (kind === "album") {
+      sendJson(req, res, 200, mapAlbum(page, { demo: true }), DEMO_CATALOG_CACHE);
+    } else if (kind === "playlist") {
+      const blocks = await retrieveAllBlockChildren(pageId, { fresh: true });
+      sendJson(req, res, 200, mapTracks(blocks, { demo: true, albumId: pageId }), DEMO_CATALOG_CACHE);
+    } else if (kind === "video") {
+      ensureDemoVideo(page);
+      sendJson(req, res, 200, mapVideo(page, { proxyVideo: true, proxySubtitles: true, demo: true, apiPrefix: "/api/demo" }), DEMO_CATALOG_CACHE);
+    } else {
+      sendJson(req, res, 404, { error: "Demo route not found." });
+    }
+  } catch (error) {
+    sendError(req, res, error);
+  }
+}
+
+export async function handleDemoTrackInfo(req, res, albumId, blockId) {
+  if (handleOptions(req, res)) return;
+  if (req.method !== "GET" || !albumId || !blockId) {
+    sendJson(req, res, req.method === "GET" ? 400 : 405, { error: "Invalid demo track request." });
+    return;
+  }
+  try {
+    enforceDemoReadRateLimit(req, "asset", DEMO_ASSET_LIMIT);
+    const page = ensurePublishedPage(await retrievePage(albumId, { fresh: true }), "music");
+    const blocks = await retrieveAllBlockChildren(albumId, { fresh: true });
+    const block = blocks.find((candidate) => candidate.id === blockId);
+    const track = ensureAudioBlock(block);
+    if (track.format !== "flac") {
+      sendJson(req, res, 404, { error: "FLAC track not found." });
       return;
     }
-    const source = await fetchMediaSource(
-      req,
-      item.media.sourceUrl,
-      async () => {
-        const fresh = await retrievePage(pageId, { fresh: true });
-        return ensurePublishedDemoPage(fresh, getDemoDataSourceId()).media.sourceUrl;
-      },
-    );
+    const metadata = await inspectFlac(track.url, { cacheKey: `demo:${page.id}:${block.id}:${block.last_edited_time || page.last_edited_time || "1"}` });
+    sendJson(req, res, 200, { id: track.id, title: track.title, ...metadata }, DEMO_CATALOG_CACHE);
+  } catch (error) {
+    sendError(req, res, error);
+  }
+}
+
+export async function handleDemoMediaAsset(req, res, kind, pageId, blockId = "") {
+  if (handleOptions(req, res)) return;
+  if ((req.method !== "GET" && req.method !== "HEAD") || !pageId || (kind === "music" && !blockId)) {
+    sendJson(req, res, req.method === "GET" || req.method === "HEAD" ? 400 : 405, { error: "Invalid demo media request." });
+    return;
+  }
+  try {
+    enforceDemoReadRateLimit(req, "asset", DEMO_ASSET_LIMIT);
+    const page = ensurePublishedPage(await retrievePage(pageId, { fresh: true }), kind);
+    let sourceUrl;
+    let contentType;
+    let refreshSource;
+    if (kind === "music") {
+      const blocks = await retrieveAllBlockChildren(pageId, { fresh: true });
+      const block = blocks.find((candidate) => candidate.id === blockId);
+      const track = ensureAudioBlock(block);
+      sourceUrl = track.url;
+      const types = { flac: "audio/flac", mp3: "audio/mpeg", m4a: "audio/mp4", ogg: "audio/ogg", oga: "audio/ogg", wav: "audio/wav", aac: "audio/aac" };
+      contentType = types[track.format] || "application/octet-stream";
+      refreshSource = async () => {
+        const freshPage = ensurePublishedPage(await retrievePage(pageId, { fresh: true }), "music");
+        const freshBlocks = await retrieveAllBlockChildren(freshPage.id, { fresh: true });
+        return ensureAudioBlock(freshBlocks.find((candidate) => candidate.id === blockId)).url;
+      };
+    } else {
+      const video = ensureDemoVideo(page);
+      sourceUrl = video.video.url;
+      contentType = video.video.name.toLowerCase().endsWith(".webm") ? "video/webm" : "video/mp4";
+      refreshSource = async () => {
+        const freshPage = ensurePublishedPage(await retrievePage(pageId, { fresh: true }), "video");
+        return ensureDemoVideo(freshPage).video.url;
+      };
+    }
+    const source = await fetchMediaSource(req, sourceUrl, refreshSource);
     if (!source.ok && source.status !== 416) {
       const error = new Error(`Unable to load demo media (${source.status}).`);
       error.status = source.status >= 400 && source.status < 500 ? source.status : 502;
       throw error;
     }
-    const contentType = item.type === "video" ? "video/mp4" : "audio/mpeg";
     await sendFetchResponse(req, res, source, PRIVATE_STREAM_CACHE, contentType);
   } catch (error) {
     sendError(req, res, error);
   }
 }
 
-export async function handleDemoCover(req, res, pageId) {
-  if (handleOptions(req, res)) {
+export async function handleDemoCoverAsset(req, res, kind, pageId) {
+  if (handleOptions(req, res)) return;
+  if (req.method !== "GET" || !pageId) {
+    sendJson(req, res, req.method === "GET" ? 400 : 405, { error: "Invalid demo cover request." });
     return;
   }
-  if (req.method !== "GET") {
-    sendJson(req, res, 405, { error: "Method not allowed." });
-    return;
-  }
-  if (!pageId) {
-    sendJson(req, res, 400, { error: "Missing demo page ID." });
-    return;
-  }
-
   try {
     enforceDemoReadRateLimit(req, "asset", DEMO_ASSET_LIMIT);
-    const dataSourceId = ensureDemoConfigured();
-    const item = ensurePublishedDemoPage(await retrievePage(pageId, { fresh: true }), dataSourceId);
-    if (!item.coverUrl) {
+    const page = ensurePublishedPage(await retrievePage(pageId, { fresh: true }), kind);
+    const media = kind === "music" ? mapAlbum(page) : mapVideo(page);
+    if (!media.cover) {
       sendJson(req, res, 404, { error: "Demo cover not found." });
       return;
     }
-    await sendCoverImage(
-      req,
-      res,
-      coverCacheKey("demo", pageId, item.updatedAt),
-      item.coverSourceUrl,
-      async () => {
-        const fresh = ensurePublishedDemoPage(await retrievePage(pageId, { fresh: true }), dataSourceId);
-        return fresh.coverSourceUrl;
-      },
-    );
+    await sendCoverImage(req, res, coverCacheKey(`demo-${kind}`, pageId, page.last_edited_time), media.cover, async () => {
+      const fresh = ensurePublishedPage(await retrievePage(pageId, { fresh: true }), kind);
+      return (kind === "music" ? mapAlbum(fresh) : mapVideo(fresh)).cover;
+    });
   } catch (error) {
     sendError(req, res, error);
   }
 }
 
-export async function handleDemoSubtitle(req, res, pageId, subtitleIndex) {
-  if (handleOptions(req, res)) {
-    return;
-  }
-  if (req.method !== "GET") {
-    sendJson(req, res, 405, { error: "Method not allowed." });
-    return;
-  }
+export async function handleDemoSubtitleAsset(req, res, pageId, subtitleIndex) {
+  if (handleOptions(req, res)) return;
   const index = Number(subtitleIndex);
-  if (!pageId || !Number.isInteger(index) || index < 0) {
-    sendJson(req, res, 400, { error: "Missing demo page ID or subtitle index." });
+  if (req.method !== "GET" || !pageId || !Number.isInteger(index) || index < 0) {
+    sendJson(req, res, req.method === "GET" ? 400 : 405, { error: "Invalid demo subtitle request." });
     return;
   }
-
   try {
     enforceDemoReadRateLimit(req, "asset", DEMO_ASSET_LIMIT);
-    const dataSourceId = ensureDemoConfigured();
-    const item = ensurePublishedDemoPage(await retrievePage(pageId, { fresh: true }), dataSourceId, "video");
-    const subtitle = item.subtitles[index];
-    if (!subtitle?.sourceUrl) {
+    const page = ensurePublishedPage(await retrievePage(pageId, { fresh: true }), "video");
+    const subtitle = mapVideo(page).subtitles[index];
+    if (!subtitle?.url) {
       sendJson(req, res, 404, { error: "Demo subtitle not found." });
       return;
     }
-    const source = await fetchMediaSource(req, subtitle.sourceUrl, async () => {
-      const fresh = ensurePublishedDemoPage(await retrievePage(pageId, { fresh: true }), dataSourceId, "video");
-      return fresh.subtitles[index]?.sourceUrl || null;
+    const source = await fetchMediaSource(req, subtitle.url, async () => {
+      const fresh = ensurePublishedPage(await retrievePage(pageId, { fresh: true }), "video");
+      return mapVideo(fresh).subtitles[index]?.url || null;
     });
     if (!source.ok) {
       const error = new Error(`Unable to load demo subtitle (${source.status}).`);

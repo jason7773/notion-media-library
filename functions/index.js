@@ -1,7 +1,7 @@
 import { defineSecret, defineString } from "firebase-functions/params";
 import { onRequest } from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2/options";
-import { handleAlbums, handleCover, handleDemo, handleDemoCover, handleDemoMedia, handleDemoSubtitle, handleLibrary, handlePlaylist, handleTrackInfo, handleVideo, handleVideoCover, handleVideoStream, handleVideoSubtitle, handleVideos } from "./server/handlers.js";
+import { handleAlbums, handleCover, handleDemoCatalog, handleDemoCoverAsset, handleDemoMediaAsset, handleDemoPage, handleDemoSubtitleAsset, handleDemoTrackInfo, handleLibrary, handlePlaylist, handleTrackInfo, handleVideo, handleVideoCover, handleVideoStream, handleVideoSubtitle, handleVideos } from "./server/handlers.js";
 import {
   handleAdminAuditLogs,
   handleAdminUsers,
@@ -20,7 +20,8 @@ import {
 const notionToken = defineSecret("NOTION_TOKEN");
 const notionDataSourceId = defineString("NOTION_DATA_SOURCE_ID");
 const notionVideoDataSourceId = defineString("NOTION_VIDEO_DATA_SOURCE_ID");
-const notionDemoDataSourceId = defineString("NOTION_DEMO_DATA_SOURCE_ID", { default: "" });
+const notionDemoMusicDataSourceId = defineString("NOTION_DEMO_MUSIC_DATA_SOURCE_ID", { default: "" });
+const notionDemoVideoDataSourceId = defineString("NOTION_DEMO_VIDEO_DATA_SOURCE_ID", { default: "" });
 const allowedOrigins = defineString("ALLOWED_ORIGINS", { default: "" });
 const adminEmails = defineString("ADMIN_EMAILS", { default: "" });
 
@@ -32,7 +33,8 @@ function prepareConfig() {
   process.env.NOTION_TOKEN = notionToken.value();
   process.env.NOTION_DATA_SOURCE_ID = notionDataSourceId.value();
   process.env.NOTION_VIDEO_DATA_SOURCE_ID = notionVideoDataSourceId.value();
-  process.env.NOTION_DEMO_DATA_SOURCE_ID = notionDemoDataSourceId.value();
+  process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID = notionDemoMusicDataSourceId.value();
+  process.env.NOTION_DEMO_VIDEO_DATA_SOURCE_ID = notionDemoVideoDataSourceId.value();
   process.env.ALLOWED_ORIGINS = allowedOrigins.value();
   process.env.ADMIN_EMAILS = adminEmails.value();
 }
@@ -53,31 +55,39 @@ export const api = onRequest(
       return;
     }
 
-    if (path === "/demo" || path === "/demo/") {
-      await handleDemo(req, res);
+    const demoCatalogMatch = path.match(/^\/demo\/(albums|library|videos)\/?$/);
+    if (demoCatalogMatch) {
+      await handleDemoCatalog(req, res, demoCatalogMatch[1]);
       return;
     }
 
-    const demoMediaMatch = path.match(/^\/demo\/media\/([^/]+)\/?$/);
-    if (demoMediaMatch) {
-      await handleDemoMedia(req, res, decodeURIComponent(demoMediaMatch[1]));
+    const demoPlaylistMatch = path.match(/^\/demo\/(playlist|album|video|video-stream|cover|video-cover)\/([^/]+)\/?$/);
+    if (demoPlaylistMatch) {
+      const [, kind, pageId] = demoPlaylistMatch;
+      if (kind === "video-stream") {
+        await handleDemoMediaAsset(req, res, "video", decodeURIComponent(pageId));
+      } else if (kind === "cover" || kind === "video-cover") {
+        await handleDemoCoverAsset(req, res, kind === "cover" ? "music" : "video", decodeURIComponent(pageId));
+      } else {
+        await handleDemoPage(req, res, kind, decodeURIComponent(pageId));
+      }
       return;
     }
 
-    const demoCoverMatch = path.match(/^\/demo\/cover\/([^/]+)\/?$/);
-    if (demoCoverMatch) {
-      await handleDemoCover(req, res, decodeURIComponent(demoCoverMatch[1]));
+    const demoTrackMatch = path.match(/^\/demo\/(track|track-info)\/([^/]+)\/([^/]+)\/?$/);
+    if (demoTrackMatch) {
+      const [, kind, albumId, blockId] = demoTrackMatch;
+      if (kind === "track-info") {
+        await handleDemoTrackInfo(req, res, decodeURIComponent(albumId), decodeURIComponent(blockId));
+      } else {
+        await handleDemoMediaAsset(req, res, "music", decodeURIComponent(albumId), decodeURIComponent(blockId));
+      }
       return;
     }
 
-    const demoSubtitleMatch = path.match(/^\/demo\/subtitle\/([^/]+)\/(\d+)\/?$/);
+    const demoSubtitleMatch = path.match(/^\/demo\/video-subtitle\/([^/]+)\/(\d+)\/?$/);
     if (demoSubtitleMatch) {
-      await handleDemoSubtitle(
-        req,
-        res,
-        decodeURIComponent(demoSubtitleMatch[1]),
-        demoSubtitleMatch[2],
-      );
+      await handleDemoSubtitleAsset(req, res, decodeURIComponent(demoSubtitleMatch[1]), demoSubtitleMatch[2]);
       return;
     }
 

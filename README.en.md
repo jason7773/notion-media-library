@@ -38,8 +38,11 @@ the video player can load them consistently.
   series, or a custom mix.
 - Optional Google Analytics page and playback events through
   `VITE_GA_MEASUREMENT_ID`.
-- Same-site public Demo landing page backed by a separate Notion data source;
-  guests can play published samples before signing in.
+- Guest Demo uses the same music/video browsing and player UI, backed by
+  separate Demo Music and Demo Video data sources.
+- Demo progress, preferences, wishlist, and issue reports stay in versioned
+  browser storage and are clearly marked as local-only; no admin console is
+  exposed to guests.
 
 The public code repository contains no media library, Notion token, Firebase
 project binding, or private user data. Use only media that you own or are
@@ -109,11 +112,10 @@ Add the live Hosting domain, preview channel domains, and localhost to Firebase
 Authentication authorized domains before testing Google login.
 
 The normal UI exposes admin-approved Google sign-in. Password accounts can be
-provisioned by the admin API, but there is no password sign-in screen. Before
-signing in, visitors see the public Demo landing page and can play only
-published showcase items. No anonymous Firebase account is created. Approved
-Google accounts can continue into the private library; all other sign-ins stay
-on the Demo page.
+provisioned by the admin API, but there is no password sign-in screen. Guests
+see the same library UI as private users, but only published items from the
+separate Demo data sources. No anonymous Firebase account is created. Approved
+Google accounts switch into the private library; other sign-ins stay in Demo.
 
 ## Environment Variables
 
@@ -123,9 +125,10 @@ Copy `.env.example` for local Vite development and fill in real values:
 NOTION_TOKEN=ntn_replace_me
 NOTION_DATA_SOURCE_ID=replace_with_music_data_source_id
 NOTION_VIDEO_DATA_SOURCE_ID=replace_with_video_data_source_id
+NOTION_DEMO_MUSIC_DATA_SOURCE_ID=
+NOTION_DEMO_VIDEO_DATA_SOURCE_ID=
 ALLOWED_ORIGINS=http://localhost:5173
 ADMIN_EMAILS=you@example.com
-NOTION_DEMO_DATA_SOURCE_ID=replace_with_demo_data_source_id
 
 VITE_FIREBASE_API_KEY=replace_me
 VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
@@ -206,11 +209,17 @@ POST   /api/session
 DELETE /api/session
 GET    /api/me
 
-GET    /api/demo
-GET    /api/demo/media/:pageId
-HEAD   /api/demo/media/:pageId
-GET    /api/demo/cover/:pageId
-GET    /api/demo/subtitle/:pageId/:subtitleIndex
+GET    /api/demo/albums
+GET    /api/demo/library
+GET    /api/demo/playlist/:albumId
+GET    /api/demo/track/:albumId/:blockId
+GET    /api/demo/track-info/:albumId/:blockId
+GET    /api/demo/cover/:albumId
+GET    /api/demo/videos
+GET    /api/demo/video/:pageId
+GET    /api/demo/video-stream/:pageId
+GET    /api/demo/video-cover/:pageId
+GET    /api/demo/video-subtitle/:pageId/:subtitleIndex
 
 GET    /api/albums
 GET    /api/library
@@ -295,12 +304,18 @@ Admins can then add users and adjust access from the dashboard.
 
 ## Same-site Demo deployment
 
-Create a separate `Demo Media` data source in the same Notion workspace and
-share it with the existing integration. Set
-`NOTION_DEMO_DATA_SOURCE_ID` for Functions. Each row is one music track or one
-short video clip; only rows with `Published=true` and a supported file type are
-returned. Guests can browse and play this catalog without signing in; the
-existing private catalog remains behind approved Google authentication.
+Create separate Demo Music and Demo Video data sources and share both with the
+Notion integration. Copy the production music schema for Demo Music and the
+production video schema for Demo Video, adding a required `Published` checkbox
+to each. Use distinct IDs from both private data sources. A published music
+album exposes the album and all supported audio blocks on its page; published
+video rows expose the video, cover, and WebVTT subtitles. Each Demo source is
+optional, and an unset source appears as an empty section in the shared UI.
+
+Guests can browse and play without signing in. Local progress, preferences,
+wishlist entries, and issue reports remain in versioned browser storage and do
+not reach Firestore or an administrator. Only approved Google accounts switch
+into the private catalog.
 
 The Function has a default instance cap and an IP-based per-demo read limit to
 reduce accidental cost spikes. Treat these as a baseline: monitor billing and

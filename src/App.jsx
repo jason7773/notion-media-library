@@ -36,6 +36,7 @@ const WATCH_PROGRESS_PREFIX = "notion-watch-progress";
 const NIGHT_MODE_STORAGE_KEY = "notion-library-night-mode";
 const MOVIE_PREFS_PREFIX = "notion-movie-prefs";
 const WISH_STATUS_PREFIX = "notion-wish-status";
+const DEMO_STORAGE_KEY = "notion-media-demo:v1";
 const DEFAULT_MOVIE_PREFS = {
   autoNext: false,
   playbackRate: 1,
@@ -54,6 +55,98 @@ const PLAYBACK_STALL_RECOVERY_MS = 8000;
 const PLAYBACK_RECOVERY_COOLDOWN_MS = 3000;
 const GA_MEASUREMENT_ID = (import.meta.env.VITE_GA_MEASUREMENT_ID || "").trim();
 const subtitleTextCache = new Map();
+
+function readDemoState() {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(DEMO_STORAGE_KEY) || "{}");
+    return {
+      progress: value.progress && typeof value.progress === "object" ? value.progress : {},
+    wishes: Array.isArray(value.wishes) ? value.wishes : [],
+    reports: Array.isArray(value.reports) ? value.reports : [],
+    profile: value.profile && typeof value.profile === "object" ? value.profile : { displayName: "" },
+  };
+  } catch {
+    return { progress: {}, wishes: [], reports: [], profile: { displayName: "" } };
+  }
+}
+
+function writeDemoState(state) {
+  try {
+    window.localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    throw new Error("Demo data cannot be saved in this browser.");
+  }
+}
+
+function demoLocalApi(path, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
+  const state = readDemoState();
+  const body = typeof options.body === "string" ? JSON.parse(options.body || "{}") : options.body || {};
+  if (path === "/api/me" && method === "GET") return { user: state.profile };
+  if (path === "/api/me" && method === "PATCH") {
+    state.profile = { ...state.profile, displayName: String(body.displayName || "").trim().slice(0, 60) };
+    writeDemoState(state);
+    return { user: state.profile };
+  }
+  const progressMatch = path.match(/^\/api\/watch-progress\/([^/]+)$/);
+  if (path === "/api/watch-progress" && method === "GET") {
+    return { progress: Object.values(state.progress).sort((a, b) => String(b.lastWatchedAt || "").localeCompare(String(a.lastWatchedAt || ""))) };
+  }
+  if (progressMatch) {
+    const videoId = decodeURIComponent(progressMatch[1]);
+    if (method === "GET") return { progress: state.progress[videoId] || null };
+    if (method === "PUT") {
+      const durationSeconds = Math.max(0, Number(body.durationSeconds) || 0);
+      const positionSeconds = Math.max(0, Number(body.positionSeconds) || 0);
+      const percent = durationSeconds ? Math.max(0, Math.min(100, (positionSeconds / durationSeconds) * 100)) : 0;
+      const progress = { ...body, videoId, durationSeconds, positionSeconds, percent, completed: Boolean(body.completed) || percent >= 92, lastWatchedAt: new Date().toISOString() };
+      state.progress[videoId] = progress;
+      writeDemoState(state);
+      return { progress };
+    }
+    if (method === "DELETE") {
+      delete state.progress[videoId];
+      writeDemoState(state);
+      return { ok: true };
+    }
+  }
+  if (path === "/api/watch-events" && method === "POST") return { ok: true, demo: true };
+  if (path === "/api/wishlist" && method === "GET") return { wishes: state.wishes };
+  if (path === "/api/wishlist" && method === "POST") {
+    const wish = { ...body, id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`, status: "new", createdAt: new Date().toISOString() };
+    state.wishes = [wish, ...state.wishes];
+    writeDemoState(state);
+    return { wish };
+  }
+  const wishMatch = path.match(/^\/api\/wishlist\/([^/]+)$/);
+  if (wishMatch && method === "PATCH") {
+    const id = decodeURIComponent(wishMatch[1]);
+    state.wishes = state.wishes.map((wish) => wish.id === id ? { ...wish, ...body, updatedAt: new Date().toISOString() } : wish);
+    writeDemoState(state);
+    return { wish: state.wishes.find((wish) => wish.id === id) || null };
+  }
+  if (path === "/api/video-reports" && method === "POST") {
+    state.reports = [{ ...body, id: globalThis.crypto?.randomUUID?.() || `${Date.now()}`, createdAt: new Date().toISOString() }, ...state.reports];
+    writeDemoState(state);
+    return { ok: true, demo: true };
+  }
+  return null;
+}
+
+function demoApiPath(path) {
+  const mappings = [
+    [/^\/api\/albums\/?$/, "/api/demo/albums"],
+    [/^\/api\/library\/?$/, "/api/demo/library"],
+    [/^\/api\/videos\/?$/, "/api/demo/videos"],
+    [/^\/api\/playlist\//, "/api/demo/playlist/"],
+    [/^\/api\/track-info\//, "/api/demo/track-info/"],
+    [/^\/api\/video\//, "/api/demo/video/"],
+  ];
+  for (const [pattern, replacement] of mappings) {
+    if (pattern.test(path)) return path.replace(pattern, replacement);
+  }
+  return path;
+}
 
 function formatTime(seconds) {
   if (!Number.isFinite(seconds)) {
@@ -703,6 +796,10 @@ const coverWidths = {
 };
 
 function getCoverUrl(album, size = "large") {
+  if (album?.coverUrl) {
+    const params = new URLSearchParams({ size: String(coverWidths[size]), v: album.coverVersion || "1" });
+    return `${album.coverUrl}?${params.toString()}`;
+  }
   if (!album?.cover) {
     return null;
   }
@@ -751,6 +848,10 @@ function Cover({ album, size = "large" }) {
 }
 
 function getVideoCoverUrl(video, size = "large") {
+  if (video?.coverUrl) {
+    const params = new URLSearchParams({ size: String(coverWidths[size]), v: video.coverVersion || "1" });
+    return `${video.coverUrl}?${params.toString()}`;
+  }
   if (!video?.cover) {
     return null;
   }
@@ -1345,7 +1446,7 @@ function SeriesDetail({ group, onBack, onSelect }) {
   );
 }
 
-function ReportIssueDialog({ onClose, onSubmit, video }) {
+function ReportIssueDialog({ demo = false, onClose, onSubmit, video }) {
   const [type, setType] = useState("broken_video");
   const [note, setNote] = useState("");
   const [message, setMessage] = useState("");
@@ -1357,7 +1458,7 @@ function ReportIssueDialog({ onClose, onSubmit, video }) {
     setMessage("");
     try {
       await onSubmit({ note, type });
-      setMessage("Report sent to admin.");
+      setMessage(demo ? "Demo report saved in this browser." : "Report sent to admin.");
       setNote("");
     } catch (requestError) {
       setMessage(requestError.message);
@@ -1373,6 +1474,7 @@ function ReportIssueDialog({ onClose, onSubmit, video }) {
           <div>
             <span className="text-[10px] font-extrabold tracking-[0.2em] text-[#7c938d] uppercase">Report issue</span>
             <h3 className="mt-1 font-serif text-3xl text-[#334742]">{video.title}</h3>
+            {demo && <p className="mt-2 max-w-sm text-xs leading-5 text-[#71847f]">Demo reports are stored only in this browser. They are not sent to an administrator.</p>}
           </div>
           <button className="rounded-full border border-[#d8ded8] bg-white px-3 py-1.5 text-sm font-extrabold text-[#71847f]" onClick={onClose} type="button">
             Close
@@ -1399,7 +1501,7 @@ function subtitleCacheKey(video, subtitle, index) {
   return `${video?.id || "video"}:${video?.updatedAt || video?.coverVersion || "1"}:${index}:${subtitle?.name || ""}`;
 }
 
-function MoviePlayer({ apiFetchText, loading, nextVideo, onAutoNext, onBack, onPrefsChange, onProgress, onRefresh, onReportIssue, onWatchEvent, prefs, progress, resumeEnabled, video }) {
+function MoviePlayer({ apiFetchText, demo = false, loading, nextVideo, onAutoNext, onBack, onPrefsChange, onProgress, onRefresh, onReportIssue, onWatchEvent, prefs, progress, resumeEnabled, video }) {
   const videoRef = useRef(null);
   const restoredRef = useRef(false);
   const lastProgressRef = useRef(0);
@@ -2000,6 +2102,7 @@ function MoviePlayer({ apiFetchText, loading, nextVideo, onAutoNext, onBack, onP
       </section>
       {reportOpen && (
         <ReportIssueDialog
+          demo={demo}
           onClose={() => setReportOpen(false)}
           onSubmit={async (report) => {
             await onReportIssue?.(report);
@@ -2012,7 +2115,7 @@ function MoviePlayer({ apiFetchText, loading, nextVideo, onAutoNext, onBack, onP
   );
 }
 
-function WishlistLauncher({ apiFetch, user }) {
+function WishlistLauncher({ apiFetch, demo = false, user }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState("new");
   const [type, setType] = useState("movie");
@@ -2086,7 +2189,7 @@ function WishlistLauncher({ apiFetch, user }) {
       setTitle("");
       setNote("");
       setType("movie");
-      setMessage("Wish sent to admin.");
+      setMessage(demo ? "Demo wish saved in this browser." : "Wish sent to admin.");
       await loadWishes();
     } catch (requestError) {
       setMessage(requestError.message);
@@ -2165,6 +2268,7 @@ function WishlistLauncher({ apiFetch, user }) {
       {open && (
         <div className="fixed inset-0 z-50 flex justify-end bg-[#22302c]/45 p-3 backdrop-blur-sm sm:p-5">
           <form className="h-full w-full max-w-xl overflow-auto rounded-[1.25rem] border border-[#d9e2dc] bg-[#fffdf9] p-5 shadow-[0_24px_70px_rgba(34,48,44,0.22)]" onSubmit={submitWish}>
+            {demo && <p className="mb-4 rounded-xl bg-[#eef3ef] px-4 py-3 text-xs leading-5 text-[#5e746f]">Demo wishes are stored only in this browser. They are not sent to an administrator.</p>}
             <div className="flex items-start justify-between gap-4">
               <div>
                 <span className="text-[10px] font-extrabold tracking-[0.2em] text-[#7c938d] uppercase">Wishlist</span>
@@ -2325,7 +2429,7 @@ function WishlistLauncher({ apiFetch, user }) {
   );
 }
 
-function SettingsDialog({ nightMode, onNightModeChange, onSaveProfile, user }) {
+function SettingsDialog({ demo = false, nightMode, onNightModeChange, onSaveProfile, user }) {
   const [open, setOpen] = useState(false);
   const [displayName, setDisplayName] = useState(user?.displayName || "");
   const [message, setMessage] = useState("");
@@ -2341,7 +2445,7 @@ function SettingsDialog({ nightMode, onNightModeChange, onSaveProfile, user }) {
     setMessage("");
     try {
       await onSaveProfile({ displayName });
-      setMessage("Settings saved.");
+      setMessage(demo ? "Demo settings saved in this browser." : "Settings saved.");
     } catch (requestError) {
       setMessage(requestError.message);
     } finally {
@@ -2402,9 +2506,9 @@ function SettingsDialog({ nightMode, onNightModeChange, onSaveProfile, user }) {
                   </label>
                 </div>
               </div>
-              <div className="rounded-2xl bg-[#f4f0e9] p-4 text-sm text-[#5e746f]">
-                Signed in as <strong className="text-[#334742]">{user?.email}</strong>
-              </div>
+              {demo
+                ? <div className="rounded-2xl bg-[#f4f0e9] p-4 text-sm leading-6 text-[#5e746f]">Demo profile and appearance settings are stored only in this browser.</div>
+                : <div className="rounded-2xl bg-[#f4f0e9] p-4 text-sm text-[#5e746f]">Signed in as <strong className="text-[#334742]">{user?.email}</strong></div>}
               <div className="flex flex-wrap items-center gap-3">
                 <button className="rounded-full bg-[#334742] px-5 py-3 text-sm font-extrabold text-white disabled:opacity-50" disabled={saving} type="submit">
                   Save settings
@@ -2419,7 +2523,22 @@ function SettingsDialog({ nightMode, onNightModeChange, onSaveProfile, user }) {
   );
 }
 
-function AccountBar({ apiFetch, nightMode, onAdmin, onBack, onLogout, onNightModeChange, onSaveProfile, showWishlist = true, user }) {
+function AccountBar({ apiFetch, demo = false, nightMode, notice = "", onAdmin, onBack, onLogin, onLogout, onNightModeChange, onSaveProfile, showWishlist = true, user }) {
+  if (demo) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-8">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-[#e4eee9] px-3 py-2 text-xs font-extrabold text-[#4f7f78]">Public demo · personal data stays in this browser</span>
+          {onSaveProfile && <SettingsDialog demo nightMode={nightMode} onNightModeChange={onNightModeChange} onSaveProfile={onSaveProfile} user={user} />}
+          {showWishlist && apiFetch && <WishlistLauncher apiFetch={apiFetch} demo user={{ uid: "demo:v1" }} />}
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {notice && <span className="max-w-md text-xs font-semibold text-[#9b5d49]">{notice}</span>}
+          <button className="rounded-full bg-[#334742] px-4 py-2.5 text-xs font-extrabold text-white" onClick={onLogin} type="button">Sign into private library</button>
+        </div>
+      </div>
+    );
+  }
   const identityLabel = user?.displayName || user?.email;
   const initials = String(identityLabel || "?")
     .split(/\s+/)
@@ -3540,7 +3659,7 @@ function AdminUserRow({ onSave, row, videos }) {
   );
 }
 
-function WelcomeScreen({ albumsLoading, featureFlags, onChoose, totalAlbums, totalVideos, videosLoading }) {
+function WelcomeScreen({ albumsLoading, demo = false, featureFlags, onChoose, totalAlbums, totalVideos, videosLoading }) {
   const choices = [
     {
       mode: "music",
@@ -3575,6 +3694,7 @@ function WelcomeScreen({ albumsLoading, featureFlags, onChoose, totalAlbums, tot
           <p className="mt-5 max-w-xl text-sm leading-6 text-[#6f817c]">
             Open your Notion-backed collection as a music player or a video library.
           </p>
+          {demo && <p className="mt-3 text-xs font-semibold text-[#9b6b55]">Public demo content · personal data is saved only in this browser.</p>}
         </div>
 
         <div className="mt-10 grid gap-4 md:grid-cols-2">
@@ -4010,12 +4130,10 @@ export default function App() {
   );
   const searchAnalyticsRef = useRef("");
   const [authReady, setAuthReady] = useState(false);
-  const [authError, setAuthError] = useState(firebaseConfigError);
+  const [authError, setAuthError] = useState("");
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [authProfile, setAuthProfile] = useState(null);
-  const [demoItems, setDemoItems] = useState([]);
-  const [demoLoading, setDemoLoading] = useState(true);
-  const [demoError, setDemoError] = useState("");
+  const [demoProfile, setDemoProfile] = useState(() => readDemoState().profile);
   const [nightMode, setNightMode] = useState(() => {
     try {
       return window.localStorage.getItem(NIGHT_MODE_STORAGE_KEY) === "1";
@@ -4060,48 +4178,44 @@ export default function App() {
   const [continueProgress, setContinueProgress] = useState([]);
   const [moviePrefs, setMoviePrefs] = useState(DEFAULT_MOVIE_PREFS);
   const [moviePrefsLoaded, setMoviePrefsLoaded] = useState(false);
+  const demoMode = !authProfile;
+  const featureFlags = authProfile?.featureFlags || DEFAULT_FEATURE_FLAGS;
 
   const apiFetch = useCallback(async (url, options = {}) => {
+    if (demoMode) {
+      const parsed = new URL(url, window.location.origin);
+      const local = demoLocalApi(parsed.pathname, options);
+      if (local !== null) return local;
+      url = demoApiPath(parsed.pathname) + parsed.search;
+    }
     const token = auth?.currentUser ? await auth.currentUser.getIdToken() : "";
     const headers = { ...(options.headers || {}) };
     if (token) {
       headers.Authorization = `Bearer ${token}`;
     }
     return fetchJson(url, { ...options, headers });
-  }, []);
+  }, [demoMode]);
 
   const apiFetchText = useCallback(async (url, options = {}) => {
+    if (demoMode) url = demoApiPath(new URL(url, window.location.origin).pathname) + new URL(url, window.location.origin).search;
     const token = auth?.currentUser ? await auth.currentUser.getIdToken() : "";
     const headers = { ...(options.headers || {}) };
     if (token) {
       headers.Authorization = `Bearer ${token}`;
     }
     return fetchText(url, { ...options, headers });
-  }, []);
+  }, [demoMode]);
 
   useEffect(() => {
-    let cancelled = false;
-    fetchJson("/api/demo")
-      .then((payload) => {
-        if (!cancelled) {
-          setDemoItems(Array.isArray(payload.items) ? payload.items : []);
-          setDemoError("");
-        }
-      })
-      .catch((requestError) => {
-        if (!cancelled) {
-          setDemoError(requestError.message);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setDemoLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    setLibraryLoaded(false);
+    setLibraryTracks([]);
+    setContinueProgress([]);
+    setAlbums([]);
+    setVideos([]);
+    setSelectedAlbum(null);
+    setSelectedVideo(null);
+    setLibraryMode(null);
+  }, [authProfile?.uid]);
 
   const currentTrack = playbackQueue[queueCursor] || null;
   const ensureLibraryLoaded = useCallback(async () => {
@@ -4238,30 +4352,23 @@ export default function App() {
   }, [nightMode]);
 
   useEffect(() => {
-    if (!authProfile?.uid) {
-      return;
-    }
+    const preferenceUserId = authProfile?.uid || (demoMode ? "demo:v1" : "");
+    if (!preferenceUserId) return;
     setMoviePrefsLoaded(false);
-    setMoviePrefs(readMoviePrefs(authProfile.uid));
+    setMoviePrefs(readMoviePrefs(preferenceUserId));
     setMoviePrefsLoaded(true);
-  }, [authProfile?.uid]);
+  }, [authProfile?.uid, demoMode]);
 
   useEffect(() => {
-    if (!authProfile?.uid || !moviePrefsLoaded) {
-      return;
-    }
-    writeMoviePrefs(authProfile.uid, moviePrefs);
-  }, [authProfile?.uid, moviePrefs, moviePrefsLoaded]);
+    const preferenceUserId = authProfile?.uid || (demoMode ? "demo:v1" : "");
+    if (preferenceUserId && moviePrefsLoaded) writeMoviePrefs(preferenceUserId, moviePrefs);
+  }, [authProfile?.uid, demoMode, moviePrefs, moviePrefsLoaded]);
 
   useEffect(() => {
     if (!authReady) {
       return;
     }
-    if (!authProfile) {
-      trackPageView("/demo", "Public demo");
-      return;
-    }
-    if (adminOpen) {
+    if (adminOpen && authProfile?.role === "admin") {
       trackPageView("/admin", "Admin");
       return;
     }
@@ -4285,11 +4392,12 @@ export default function App() {
       }
       return;
     }
-    trackPageView("/", "Welcome");
+    trackPageView("/", demoMode ? "Public demo" : "Welcome");
   }, [
     adminOpen,
     authProfile,
     authReady,
+    demoMode,
     libraryMode,
     normalizedQuery,
     selectedAlbum,
@@ -4298,7 +4406,7 @@ export default function App() {
   ]);
 
   useEffect(() => {
-    if (!authProfile || !libraryMode || normalizedQuery.length < 2) {
+    if ((!authProfile && !demoMode) || !libraryMode || normalizedQuery.length < 2) {
       return undefined;
     }
     const contentType = libraryMode === "movies" ? "video" : "music";
@@ -4321,6 +4429,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [
     authProfile,
+    demoMode,
     filteredLibraryTracks.length,
     filteredVideos.length,
     libraryMode,
@@ -4364,27 +4473,23 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!authProfile) {
-      return;
-    }
+    if (!authReady) return;
     setAlbumsLoading(true);
     apiFetch("/api/albums")
       .then(setAlbums)
       .catch((requestError) => setError(requestError.message))
       .finally(() => setAlbumsLoading(false));
-  }, [apiFetch, authProfile]);
+  }, [apiFetch, authProfile, authReady]);
 
   useEffect(() => {
-    if (!authProfile || libraryMode !== "music") {
+    if ((!authProfile && !authReady) || libraryMode !== "music") {
       return;
     }
     ensureLibraryLoaded();
   }, [authProfile, ensureLibraryLoaded, libraryMode]);
 
   useEffect(() => {
-    if (!authProfile) {
-      return;
-    }
+    if (!authReady) return;
     setVideosLoading(true);
     apiFetch("/api/videos")
       .then((nextVideos) => {
@@ -4392,16 +4497,16 @@ export default function App() {
       })
       .catch((requestError) => setError(`Unable to load movies: ${requestError.message}`))
       .finally(() => setVideosLoading(false));
-  }, [apiFetch, authProfile]);
+  }, [apiFetch, authProfile, authReady]);
 
   useEffect(() => {
-    if (!authProfile?.featureFlags?.video || !videos.length) {
+    if (featureFlags.video === false || !videos.length) {
       return;
     }
     apiFetch("/api/watch-progress?limit=12")
       .then((data) => setContinueProgress(data.progress || []))
       .catch(() => {});
-  }, [apiFetch, authProfile?.featureFlags?.video, videos.length]);
+  }, [apiFetch, featureFlags.video, videos.length]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -4857,11 +4962,11 @@ export default function App() {
   }
 
   function changeLibraryMode(mode) {
-    if (mode === "music" && authProfile?.featureFlags?.music === false) {
+    if (mode === "music" && featureFlags.music === false) {
       setError("Music is not enabled for this account.");
       return;
     }
-    if (mode === "movies" && authProfile?.featureFlags?.video === false) {
+    if (mode === "movies" && featureFlags.video === false) {
       setError("Video is not enabled for this account.");
       return;
     }
@@ -4885,7 +4990,7 @@ export default function App() {
   async function openVideo(video) {
     const requestId = videoRequestRef.current + 1;
     videoRequestRef.current = requestId;
-    const localProgress = readLocalVideoProgress(authProfile?.uid, video.id);
+    const localProgress = authProfile?.uid ? readLocalVideoProgress(authProfile.uid, video.id) : null;
     setSelectedVideo(video);
     trackAnalyticsEvent("video_open", videoAnalyticsParams(video));
     setSelectedVideoProgress(localProgress);
@@ -4897,7 +5002,7 @@ export default function App() {
     try {
       const [freshVideo, progressData] = await Promise.all([
         apiFetch(`/api/video/${encodeURIComponent(video.id)}`),
-        authProfile?.featureFlags?.resumePlayback
+        featureFlags.resumePlayback
           ? apiFetch(`/api/watch-progress/${encodeURIComponent(video.id)}`)
           : Promise.resolve({ progress: null }),
       ]);
@@ -4987,6 +5092,15 @@ export default function App() {
   }
 
   async function saveProfile(updates) {
+    if (demoMode) {
+      const response = await apiFetch("/api/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      setDemoProfile(response.user || { displayName: "" });
+      return response.user;
+    }
     const response = await apiFetch("/api/me", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -5006,7 +5120,7 @@ export default function App() {
         title: selectedVideo.title,
         series: selectedVideo.series || "",
       };
-      const localProgress = writeLocalVideoProgress(authProfile?.uid, selectedVideo.id, progressBody);
+      const localProgress = authProfile?.uid ? writeLocalVideoProgress(authProfile.uid, selectedVideo.id, progressBody) : null;
       setSelectedVideoProgress((current) => newestProgress(localProgress, current));
       await apiFetch(`/api/watch-progress/${encodeURIComponent(selectedVideo.id)}`, {
         method: "PUT",
@@ -5100,18 +5214,7 @@ export default function App() {
     }));
   }
 
-  if (!authProfile) {
-    return (
-      <DemoLanding
-        error={authError || demoError}
-        items={demoItems}
-        loading={demoLoading || !authReady}
-        onGoogleLogin={loginWithGoogle}
-      />
-    );
-  }
-
-  if (adminOpen && authProfile.role === "admin") {
+  if (adminOpen && authProfile?.role === "admin") {
     return (
       <AdminDashboard
         apiFetch={apiFetch}
@@ -5130,17 +5233,21 @@ export default function App() {
       <div className="min-h-screen bg-[#f4f0e9]">
         <AccountBar
           apiFetch={apiFetch}
+          demo={demoMode}
           nightMode={nightMode}
+          notice={authError}
           onAdmin={() => setAdminOpen(true)}
           onBack={!viewHome ? goHome : undefined}
+          onLogin={loginWithGoogle}
           onLogout={logout}
           onNightModeChange={setNightMode}
           onSaveProfile={saveProfile}
-          user={authProfile}
+          user={demoMode ? demoProfile : authProfile}
         />
         <WelcomeScreen
           albumsLoading={albumsLoading}
-          featureFlags={authProfile.featureFlags}
+          demo={demoMode}
+          featureFlags={featureFlags}
           onChoose={changeLibraryMode}
           totalAlbums={albums.length}
           totalVideos={videos.length}
@@ -5174,13 +5281,16 @@ export default function App() {
         <main className="min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_74%_0%,rgba(145,180,169,0.26),transparent_38%)] px-5 pt-8 pb-20 sm:px-8 md:px-[clamp(2rem,5vw,4.5rem)] md:pt-11">
           <AccountBar
             apiFetch={apiFetch}
+            demo={demoMode}
             nightMode={nightMode}
+            notice={authError}
             onAdmin={() => setAdminOpen(true)}
             onBack={!viewHome ? backToVideoHome : undefined}
+            onLogin={loginWithGoogle}
             onLogout={logout}
             onNightModeChange={setNightMode}
             onSaveProfile={saveProfile}
-            user={authProfile}
+            user={demoMode ? demoProfile : authProfile}
           />
           {error && (
             <div className="mb-5 flex justify-between gap-4 rounded-2xl border border-[#c7ddd4] bg-[#eef7f2] px-4 py-3 text-sm text-[#3f756d]">
@@ -5199,6 +5309,7 @@ export default function App() {
           ) : selectedVideo && !viewHome ? (
             <MoviePlayer
               apiFetchText={apiFetchText}
+              demo={demoMode}
               loading={videoRefreshing}
               nextVideo={nextVideo}
               onAutoNext={openVideo}
@@ -5210,7 +5321,7 @@ export default function App() {
               onWatchEvent={recordWatchEvent}
               prefs={moviePrefs}
               progress={selectedVideoProgress}
-              resumeEnabled={authProfile.featureFlags?.resumePlayback !== false}
+              resumeEnabled={featureFlags.resumePlayback !== false}
               video={selectedVideo}
             />
           ) : (
@@ -5273,12 +5384,15 @@ export default function App() {
       <main className="min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_74%_0%,rgba(238,200,177,0.35),transparent_38%)] px-5 pt-8 pb-40 sm:px-8 md:px-[clamp(2rem,5vw,4.5rem)] md:pt-11 md:pb-32">
         <AccountBar
           apiFetch={apiFetch}
+          demo={demoMode}
           nightMode={nightMode}
+          notice={authError}
           onAdmin={() => setAdminOpen(true)}
+          onLogin={loginWithGoogle}
           onLogout={logout}
           onNightModeChange={setNightMode}
           onSaveProfile={saveProfile}
-          user={authProfile}
+          user={demoMode ? demoProfile : authProfile}
         />
         {error && (
           <div className="mb-5 flex justify-between gap-4 rounded-2xl border border-[#ecc4b1] bg-[#fff0e7] px-4 py-3 text-sm text-[#a3523d]">

@@ -8,9 +8,9 @@
 | --- | --- | --- |
 | `notion-media-library`（本目錄） | React 前端、Firebase Functions、Firestore 規則、測試、文件 | 可公開，MIT |
 | 私人部署 | 自己的 Notion integration、資料庫、影音檔與 Firebase 專案設定 | 私有，依內容授權管理 |
-| 同站 Demo | 同一 Firebase project 裡的 `Demo Media` data source | 可公開，只放自有或可再散布素材 |
+| 同站 Demo | 同一 Firebase project 裡 schema 對齊的 Demo Music／Demo Video data source | 可公開，只放有權公開播放的素材 |
 
-私人資料庫與 Demo data source 分開管理；Demo 素材可在 Notion 更新，不需要重新部署。這能避免私人內容、使用者紀錄或部署密鑰因同步流程誤進公開環境。
+私人資料庫與 Demo data source 分開管理；Demo 與私人站共用瀏覽介面，但讀取獨立目錄。Demo 素材可在 Notion 更新，不需要重新部署；Demo 個人資料留在瀏覽器，不寫入 Firestore。
 
 ## 階段與交付物
 
@@ -25,7 +25,7 @@
 ### 2. 自行部署驗證（待每位部署者執行）
 
 1. 建立自己的 Firebase 專案，啟用 Hosting、Functions、Authentication、Firestore 與 Secret Manager。
-2. 建立 Notion integration，將自己的私人音樂、影片與 `Demo Media` data source 分享給 integration。
+2. 建立 Notion integration，將自己的私人音樂、影片及可選的 Demo Music／Demo Video data source 分享給 integration。
 3. 依 `.env.example` 填入 Firebase web config；以 `firebase functions:secrets:set NOTION_TOKEN` 儲存 token。
 4. 設定 `NOTION_DATA_SOURCE_ID`、`NOTION_VIDEO_DATA_SOURCE_ID`、`ALLOWED_ORIGINS` 與 `ADMIN_EMAILS`。
 5. 先部署 Functions，再使用 Hosting preview channel 測試登入、檔案串流、字幕與權限。
@@ -33,15 +33,15 @@
 
 驗收條件：新部署者不需要取得原作者的帳號、Notion workspace、Firebase project 或媒體檔，就能依文件完成建置；私人部署的 token、資料與使用者紀錄不會出現在瀏覽器或 Git 歷史。
 
-### 3. 同站合法 Demo（待建立）
+### 3. 同介面、獨立內容的 Demo（程式已完成；部署者可選）
 
-- 使用既有 Firebase project 與獨立 `Demo Media` Notion data source。
-- 只匯入自有、已取得展示授權，或明確允許再散布的短片、音樂、封面與字幕。
-- 設定 `NOTION_DEMO_DATA_SOURCE_ID`；訪客直接讀取公開 Demo API，不建立 Firebase 匿名帳號。
-- 展示訪客只可讀取 Demo 目錄、封面、串流與字幕；私人目錄仍要求核准登入。
-- 在 Demo 頁標示素材來源與授權，並提供移除內容的聯絡方式。
+- 使用與私人目錄 schema 相同、但 ID 不同的 Demo Music／Demo Video data source，各加入 `Published` checkbox。
+- 只放自有或明確取得公開播放授權的音樂、影片、封面與字幕；Published 專輯頁面內全部曲目都會公開。
+- 設定 `NOTION_DEMO_MUSIC_DATA_SOURCE_ID`、`NOTION_DEMO_VIDEO_DATA_SOURCE_ID`；訪客使用相同 UI 與公開唯讀媒體 API，不建立 Firebase 匿名帳號。
+- Demo 的進度、願望清單與回報在瀏覽器本機模擬，不寫入 Firestore；管理後台仍需私人管理員登入。
+- 受邀 Google 帳號切換至私人目錄；未核准帳號留在 Demo。
 
-Demo 不是私人媒體庫的鏡像，也不應使用私人 Notion URL、Firebase project ID 或 Analytics ID。
+Demo 使用獨立內容，不會讀取私人 Notion data source。兩個 Demo ID 都必須不同於私人 source ID；使用有權公開的媒體，並在 README 標示來源與授權方式。
 
 ### 4. 公開 GitHub 發布（最後閘門）
 

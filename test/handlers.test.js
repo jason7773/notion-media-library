@@ -1,169 +1,150 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { coverCacheKey, fetchMediaSource, handleDemo, handleDemoCover, handleDemoMedia, handleDemoSubtitle } from "../functions/server/handlers.js";
+import { coverCacheKey, fetchMediaSource, handleDemoCatalog, handleDemoMediaAsset } from "../functions/server/handlers.js";
 import { retrievePage } from "../functions/server/notion.js";
 
 function mockResponse() {
   return {
-    headers: {},
-    statusCode: 0,
-    body: "",
-    setHeader(name, value) {
-      this.headers[name] = value;
-    },
-    end(body = "") {
-      this.body = body;
-    },
+    headers: {}, statusCode: 0, body: "",
+    setHeader(name, value) { this.headers[name] = value; },
+    end(body = "") { this.body = body; },
   };
 }
 
-test("demo catalog is disabled without a demo data source", async () => {
-  const previous = process.env.NOTION_DEMO_DATA_SOURCE_ID;
-  delete process.env.NOTION_DEMO_DATA_SOURCE_ID;
-  const res = mockResponse();
+test("demo catalogs return empty lists when their data source is not configured", async () => {
+  const previous = process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID;
+  delete process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID;
   try {
-    await handleDemo({ method: "GET", headers: {}, url: "/api/demo", ip: "198.51.100.30" }, res);
+    const res = mockResponse();
+    await handleDemoCatalog({ method: "GET", headers: {}, url: "/api/demo/albums", ip: "198.51.100.30" }, res, "albums");
     assert.equal(res.statusCode, 200);
-    assert.deepEqual(JSON.parse(res.body), { enabled: false, items: [] });
+    assert.deepEqual(JSON.parse(res.body), []);
   } finally {
-    if (previous === undefined) {
-      delete process.env.NOTION_DEMO_DATA_SOURCE_ID;
-    } else {
-      process.env.NOTION_DEMO_DATA_SOURCE_ID = previous;
-    }
+    if (previous === undefined) delete process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID;
+    else process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID = previous;
   }
 });
 
-test("demo asset routes stay unavailable when the demo data source is not configured", async () => {
-  const previous = process.env.NOTION_DEMO_DATA_SOURCE_ID;
-  delete process.env.NOTION_DEMO_DATA_SOURCE_ID;
+test("demo source IDs that match a private source are disabled", async () => {
+  const previousPrivate = process.env.NOTION_DATA_SOURCE_ID;
+  const previousDemo = process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID;
+  process.env.NOTION_DATA_SOURCE_ID = "shared-private-source";
+  process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID = "shared-private-source";
   try {
-    for (const handler of [
-      (req, res) => handleDemoMedia(req, res, "page-id"),
-      (req, res) => handleDemoCover(req, res, "page-id"),
-      (req, res) => handleDemoSubtitle(req, res, "page-id", "0"),
-    ]) {
-      const res = mockResponse();
-      await handler({ method: "GET", headers: {}, url: "/api/demo", ip: "198.51.100.40" }, res);
-      assert.equal(res.statusCode, 404);
-    }
+    const res = mockResponse();
+    await handleDemoCatalog({ method: "GET", headers: {}, url: "/api/demo/albums", ip: "198.51.100.31" }, res, "albums");
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(JSON.parse(res.body), []);
   } finally {
-    if (previous === undefined) delete process.env.NOTION_DEMO_DATA_SOURCE_ID;
-    else process.env.NOTION_DEMO_DATA_SOURCE_ID = previous;
+    if (previousPrivate === undefined) delete process.env.NOTION_DATA_SOURCE_ID; else process.env.NOTION_DATA_SOURCE_ID = previousPrivate;
+    if (previousDemo === undefined) delete process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID; else process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID = previousDemo;
   }
 });
 
-test("demo catalog returns only published items from the demo data source", async () => {
+test("demo music catalog exposes only published albums belonging to its source", async () => {
   const previousFetch = global.fetch;
   const previousToken = process.env.NOTION_TOKEN;
-  const previousDataSource = process.env.NOTION_DEMO_DATA_SOURCE_ID;
-  const dataSourceId = `demo-source-${Date.now()}`;
+  const previousSource = process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID;
+  const dataSourceId = `demo-music-${Date.now()}`;
   process.env.NOTION_TOKEN = "test-token";
-  process.env.NOTION_DEMO_DATA_SOURCE_ID = dataSourceId;
+  process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID = dataSourceId;
   global.fetch = async (url) => {
     assert.match(String(url), new RegExp(`/data_sources/${dataSourceId}/query$`));
-    return new Response(JSON.stringify({
-      results: [
-        {
-          id: "hidden",
-          properties: {
-            Name: { title: [{ plain_text: "Hidden" }] },
-            Type: { select: { name: "Music" } },
-            Published: { checkbox: false },
-            Media: { files: [{ type: "file", name: "hidden.mp3", file: { url: "https://example.test/hidden.mp3" } }] },
-          },
-        },
-        {
-          id: "published",
-          properties: {
-            Name: { title: [{ plain_text: "Published" }] },
-            Type: { select: { name: "Music" } },
-            Published: { checkbox: true },
-            Media: { files: [{ type: "file", name: "published.mp3", file: { url: "https://example.test/published.mp3" } }] },
-          },
-        },
-      ],
-      has_more: false,
-    }), { status: 200, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ results: [
+      { id: "published", parent: { type: "data_source_id", data_source_id: dataSourceId }, properties: { Name: { title: [{ plain_text: "Published Album" }] }, Published: { checkbox: true } } },
+      { id: "hidden", parent: { type: "data_source_id", data_source_id: dataSourceId }, properties: { Name: { title: [{ plain_text: "Hidden Album" }] }, Published: { checkbox: false } } },
+      { id: "foreign", parent: { type: "data_source_id", data_source_id: "other-source" }, properties: { Name: { title: [{ plain_text: "Foreign Album" }] }, Published: { checkbox: true } } },
+    ], has_more: false }), { status: 200, headers: { "Content-Type": "application/json" } });
   };
-
   try {
     const res = mockResponse();
-    await handleDemo({ method: "GET", headers: {}, url: "/api/demo", ip: `198.51.100.${Date.now() % 200}` }, res);
+    await handleDemoCatalog({ method: "GET", headers: {}, url: "/api/demo/albums", ip: `198.51.100.${Date.now() % 200}` }, res, "albums");
+    const albums = JSON.parse(res.body);
     assert.equal(res.statusCode, 200);
-    const payload = JSON.parse(res.body);
-    assert.equal(payload.enabled, true);
-    assert.deepEqual(payload.items.map((item) => item.id), ["published"]);
-    assert.equal(payload.items[0].media.url, "/api/demo/media/published");
-    assert.equal(payload.items[0].media.sourceUrl, undefined);
-    assert.equal(payload.items[0].sourceUrl, null);
+    assert.deepEqual(albums.map((album) => album.id), ["published"]);
+    assert.equal(albums[0].coverUrl, undefined);
   } finally {
     global.fetch = previousFetch;
-    if (previousToken === undefined) delete process.env.NOTION_TOKEN;
-    else process.env.NOTION_TOKEN = previousToken;
-    if (previousDataSource === undefined) delete process.env.NOTION_DEMO_DATA_SOURCE_ID;
-    else process.env.NOTION_DEMO_DATA_SOURCE_ID = previousDataSource;
+    if (previousToken === undefined) delete process.env.NOTION_TOKEN; else process.env.NOTION_TOKEN = previousToken;
+    if (previousSource === undefined) delete process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID; else process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID = previousSource;
   }
 });
 
-test("demo media rejects unpublished and cross-data-source pages before streaming", async () => {
+test("demo video catalog exposes only published videos from its separate source with proxied assets", async () => {
   const previousFetch = global.fetch;
   const previousToken = process.env.NOTION_TOKEN;
-  const previousDataSource = process.env.NOTION_DEMO_DATA_SOURCE_ID;
+  const previousMusicSource = process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID;
+  const previousVideoSource = process.env.NOTION_DEMO_VIDEO_DATA_SOURCE_ID;
+  const dataSourceId = `demo-video-${Date.now()}`;
   process.env.NOTION_TOKEN = "test-token";
-  process.env.NOTION_DEMO_DATA_SOURCE_ID = "demo-source-security";
-  const page = (parent, published) => ({
-    id: "demo-page",
-    parent: { type: "data_source_id", data_source_id: parent },
-    properties: {
-      Name: { title: [{ plain_text: "Demo" }] },
-      Type: { select: { name: "Music" } },
-      Published: { checkbox: published },
-      Media: { files: [{ type: "file", name: "demo.mp3", file: { url: "https://example.test/demo.mp3" } }] },
-    },
+  process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID = `${dataSourceId}-music`;
+  process.env.NOTION_DEMO_VIDEO_DATA_SOURCE_ID = dataSourceId;
+  global.fetch = async (url) => {
+    assert.match(String(url), new RegExp(`/data_sources/${dataSourceId}/query$`));
+    return new Response(JSON.stringify({ results: [
+      {
+        id: "published-video",
+        parent: { type: "data_source_id", data_source_id: dataSourceId },
+        last_edited_time: "2026-09-23T00:00:00Z",
+        properties: {
+          Name: { title: [{ plain_text: "Published video" }] },
+          Published: { checkbox: true },
+          Video: { files: [{ type: "file", name: "sample.mp4", file: { url: "https://notion.example/sample.mp4" } }] },
+          Cover: { files: [{ type: "file", name: "cover.png", file: { url: "https://notion.example/cover.png" } }] },
+          Subtitles: { files: [{ type: "file", name: "sample.en.vtt", file: { url: "https://notion.example/sample.en.vtt" } }] },
+        },
+      },
+      {
+        id: "unpublished-video",
+        parent: { type: "data_source_id", data_source_id: dataSourceId },
+        properties: { Name: { title: [{ plain_text: "Hidden" }] }, Published: { checkbox: false } },
+      },
+      {
+        id: "foreign-video",
+        parent: { type: "data_source_id", data_source_id: "foreign-source" },
+        properties: { Name: { title: [{ plain_text: "Foreign" }] }, Published: { checkbox: true } },
+      },
+    ], has_more: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  try {
+    const res = mockResponse();
+    await handleDemoCatalog({ method: "GET", headers: {}, url: "/api/demo/videos", ip: `198.51.100.${(Date.now() + 1) % 200}` }, res, "videos");
+    const videos = JSON.parse(res.body);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(videos.map((video) => video.id), ["published-video"]);
+    assert.equal(videos[0].video.url, "/api/demo/video-stream/published-video?v=2026-09-23T00%3A00%3A00Z");
+    assert.equal(videos[0].coverUrl, "/api/demo/video-cover/published-video");
+    assert.equal(videos[0].subtitles[0].url, "/api/demo/video-subtitle/published-video/0?v=2026-09-23T00%3A00%3A00Z");
+  } finally {
+    global.fetch = previousFetch;
+    if (previousToken === undefined) delete process.env.NOTION_TOKEN; else process.env.NOTION_TOKEN = previousToken;
+    if (previousMusicSource === undefined) delete process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID; else process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID = previousMusicSource;
+    if (previousVideoSource === undefined) delete process.env.NOTION_DEMO_VIDEO_DATA_SOURCE_ID; else process.env.NOTION_DEMO_VIDEO_DATA_SOURCE_ID = previousVideoSource;
+  }
+});
+
+test("demo media rejects unpublished and cross-source pages before streaming", async () => {
+  const previousFetch = global.fetch;
+  const previousToken = process.env.NOTION_TOKEN;
+  const previousSource = process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID;
+  const sourceId = "demo-music-security";
+  process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID = sourceId;
+  process.env.NOTION_TOKEN = "test-token";
+  const makePage = (parentId, published) => ({
+    id: "demo-album", parent: { type: "data_source_id", data_source_id: parentId },
+    properties: { Published: { checkbox: published } },
   });
   try {
-    for (const [parent, published] of [["other-source", true], ["demo-source-security", false]]) {
-      global.fetch = async (url) => new Response(JSON.stringify(page(parent, published)), { status: 200, headers: { "Content-Type": "application/json" } });
+    for (const [parentId, published] of [["other-source", true], [sourceId, false]]) {
+      global.fetch = async () => new Response(JSON.stringify(makePage(parentId, published)), { status: 200, headers: { "Content-Type": "application/json" } });
       const res = mockResponse();
-      await handleDemoMedia({ method: "GET", headers: {}, url: "/api/demo/media/demo-page", ip: `198.51.100.${parent === "other-source" ? 51 : 52}` }, res, "demo-page");
+      await handleDemoMediaAsset({ method: "GET", headers: {}, url: "/api/demo/track/demo-album/block-id", ip: `198.51.100.${published ? 41 : 42}` }, res, "music", "demo-album", "block-id");
       assert.equal(res.statusCode, 404);
     }
   } finally {
     global.fetch = previousFetch;
     if (previousToken === undefined) delete process.env.NOTION_TOKEN; else process.env.NOTION_TOKEN = previousToken;
-    if (previousDataSource === undefined) delete process.env.NOTION_DEMO_DATA_SOURCE_ID; else process.env.NOTION_DEMO_DATA_SOURCE_ID = previousDataSource;
-  }
-});
-
-test("demo media can redirect to a freshly validated Notion URL for ranged playback", async () => {
-  const previousFetch = global.fetch;
-  const previousToken = process.env.NOTION_TOKEN;
-  const previousDataSource = process.env.NOTION_DEMO_DATA_SOURCE_ID;
-  process.env.NOTION_TOKEN = "test-token";
-  process.env.NOTION_DEMO_DATA_SOURCE_ID = "demo-source-direct";
-  const sourceUrl = "https://example.test/demo.mp4";
-  global.fetch = async () => new Response(JSON.stringify({
-    id: "demo-page",
-    parent: { type: "data_source_id", data_source_id: "demo-source-direct" },
-    properties: {
-      Name: { title: [{ plain_text: "Demo video" }] },
-      Type: { select: { name: "Video" } },
-      Published: { checkbox: true },
-      Media: { files: [{ type: "file", name: "demo.mp4", file: { url: sourceUrl } }] },
-    },
-  }), { status: 200, headers: { "Content-Type": "application/json" } });
-
-  try {
-    const res = mockResponse();
-    await handleDemoMedia({ method: "GET", headers: {}, url: "/api/demo/media/demo-page?direct=1", ip: "198.51.100.53" }, res, "demo-page");
-    assert.equal(res.statusCode, 302);
-    assert.equal(res.headers.Location, sourceUrl);
-    assert.equal(res.headers["Cache-Control"], "private, no-store");
-  } finally {
-    global.fetch = previousFetch;
-    if (previousToken === undefined) delete process.env.NOTION_TOKEN; else process.env.NOTION_TOKEN = previousToken;
-    if (previousDataSource === undefined) delete process.env.NOTION_DEMO_DATA_SOURCE_ID; else process.env.NOTION_DEMO_DATA_SOURCE_ID = previousDataSource;
+    if (previousSource === undefined) delete process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID; else process.env.NOTION_DEMO_MUSIC_DATA_SOURCE_ID = previousSource;
   }
 });
 
@@ -172,35 +153,16 @@ test("fetchMediaSource forwards range requests and retries expired signed URLs",
   const calls = [];
   global.fetch = async (url, options) => {
     calls.push({ url, options });
-    if (calls.length === 1) {
-      return new Response("expired", { status: 403 });
-    }
-    return new Response("ok", {
-      status: 206,
-      headers: {
-        "Accept-Ranges": "bytes",
-        "Content-Range": "bytes 10-11/100",
-      },
-    });
+    if (calls.length === 1) return new Response("expired", { status: 403 });
+    return new Response("ok", { status: 206, headers: { "Accept-Ranges": "bytes", "Content-Range": "bytes 10-11/100" } });
   };
-
   try {
-    const response = await fetchMediaSource(
-      { headers: { range: "bytes=10-11" }, method: "GET" },
-      "https://notion.example/old",
-      async () => "https://notion.example/new",
-    );
-
+    const response = await fetchMediaSource({ headers: { range: "bytes=10-11" }, method: "GET" }, "https://notion.example/old", async () => "https://notion.example/new");
     assert.equal(response.status, 206);
-    assert.deepEqual(
-      calls.map((call) => call.url),
-      ["https://notion.example/old", "https://notion.example/new"],
-    );
+    assert.deepEqual(calls.map((call) => call.url), ["https://notion.example/old", "https://notion.example/new"]);
     assert.equal(calls[0].options.headers.Range, "bytes=10-11");
     assert.equal(calls[1].options.headers.Range, "bytes=10-11");
-  } finally {
-    global.fetch = previousFetch;
-  }
+  } finally { global.fetch = previousFetch; }
 });
 
 test("fetchMediaSource falls back to a ranged GET when HEAD is rejected", async () => {
@@ -208,40 +170,20 @@ test("fetchMediaSource falls back to a ranged GET when HEAD is rejected", async 
   const calls = [];
   global.fetch = async (url, options) => {
     calls.push({ url, options });
-    if (calls.length === 1) {
-      return new Response("head forbidden", { status: 403 });
-    }
-    return new Response(null, {
-      status: 206,
-      headers: {
-        "Accept-Ranges": "bytes",
-        "Content-Range": "bytes 0-0/100",
-        "Content-Length": "1",
-      },
-    });
+    if (calls.length === 1) return new Response("head forbidden", { status: 403 });
+    return new Response(null, { status: 206, headers: { "Accept-Ranges": "bytes", "Content-Range": "bytes 0-0/100", "Content-Length": "1" } });
   };
-
   try {
-    const response = await fetchMediaSource(
-      { headers: {}, method: "HEAD" },
-      "https://notion.example/media",
-      null,
-    );
-
+    const response = await fetchMediaSource({ headers: {}, method: "HEAD" }, "https://notion.example/media", null);
     assert.equal(response.status, 206);
     assert.equal(calls[0].options.method, "HEAD");
     assert.equal(calls[1].options.method, "GET");
     assert.equal(calls[1].options.headers.Range, "bytes=0-0");
-  } finally {
-    global.fetch = previousFetch;
-  }
+  } finally { global.fetch = previousFetch; }
 });
 
 test("cover cache keys stay stable across changing signed URLs", () => {
-  assert.equal(
-    coverCacheKey("video", "page-id", "2026-06-03T12:00:00.000Z"),
-    "video:page-id:2026-06-03T12:00:00.000Z",
-  );
+  assert.equal(coverCacheKey("video", "page-id", "2026-06-03T12:00:00.000Z"), "video:page-id:2026-06-03T12:00:00.000Z");
 });
 
 test("retrievePage fresh option bypasses and replaces stale cache entries", async () => {
@@ -249,33 +191,16 @@ test("retrievePage fresh option bypasses and replaces stale cache entries", asyn
   const previousToken = process.env.NOTION_TOKEN;
   const pageId = `fresh-page-${Date.now()}`;
   let calls = 0;
-
   process.env.NOTION_TOKEN = "test-token";
-  global.fetch = async () => {
-    calls += 1;
-    return new Response(JSON.stringify({ id: pageId, revision: calls }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  };
-
+  global.fetch = async () => new Response(JSON.stringify({ id: pageId, revision: ++calls }), { status: 200, headers: { "Content-Type": "application/json" } });
   try {
     const first = await retrievePage(pageId);
     const cached = await retrievePage(pageId);
     const fresh = await retrievePage(pageId, { fresh: true });
     const cachedFresh = await retrievePage(pageId);
-
-    assert.equal(first.revision, 1);
-    assert.equal(cached.revision, 1);
-    assert.equal(fresh.revision, 2);
-    assert.equal(cachedFresh.revision, 2);
-    assert.equal(calls, 2);
+    assert.deepEqual([first.revision, cached.revision, fresh.revision, cachedFresh.revision, calls], [1, 1, 2, 2, 2]);
   } finally {
     global.fetch = previousFetch;
-    if (previousToken === undefined) {
-      delete process.env.NOTION_TOKEN;
-    } else {
-      process.env.NOTION_TOKEN = previousToken;
-    }
+    if (previousToken === undefined) delete process.env.NOTION_TOKEN; else process.env.NOTION_TOKEN = previousToken;
   }
 });

@@ -1,7 +1,7 @@
 import { defineConfig, loadEnv } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { handleAlbums, handleCover, handleDemo, handleDemoCover, handleDemoMedia, handleDemoSubtitle, handleLibrary, handlePlaylist, handleTrackInfo, handleVideo, handleVideoCover, handleVideoStream, handleVideoSubtitle, handleVideos } from "./functions/server/handlers.js";
+import { handleAlbums, handleCover, handleDemoCatalog, handleDemoCoverAsset, handleDemoMediaAsset, handleDemoPage, handleDemoSubtitleAsset, handleDemoTrackInfo, handleLibrary, handlePlaylist, handleTrackInfo, handleVideo, handleVideoCover, handleVideoStream, handleVideoSubtitle, handleVideos } from "./functions/server/handlers.js";
 import { handleAdminAuditLogs, handleAdminUsers, handleAdminVideoReports, handleAdminWatchEvents, handleAdminWatchProgress, handleAdminWishlist, handleMe, handleSession, handleVideoReports, handleWatchEvents, handleWatchProgress, handleWishlist } from "./functions/server/auth.js";
 
 function copyEnv(mode) {
@@ -29,21 +29,29 @@ function apiPlugin(mode) {
 
       server.middlewares.use("/api/demo", async (req, res, next) => {
         const path = req.url.split("?")[0].replace(/^\/+/, "");
-        if (!path) {
-          await handleDemo(req, res);
+        const catalog = path.match(/^(albums|library|videos)\/?$/);
+        if (catalog) {
+          await handleDemoCatalog(req, res, catalog[1]);
           return;
         }
-        if (path.startsWith("media/")) {
-          await handleDemoMedia(req, res, decodeURIComponent(path.slice("media/".length)));
+        const track = path.match(/^(track|track-info)\/([^/]+)\/([^/]+)\/?$/);
+        if (track) {
+          const [, kind, albumId, blockId] = track.map((item) => item && decodeURIComponent(item));
+          if (kind === "track-info") await handleDemoTrackInfo(req, res, albumId, blockId);
+          else await handleDemoMediaAsset(req, res, "music", albumId, blockId);
           return;
         }
-        if (path.startsWith("cover/")) {
-          await handleDemoCover(req, res, decodeURIComponent(path.slice("cover/".length)));
+        const subtitle = path.match(/^video-subtitle\/([^/]+)\/(\d+)\/?$/);
+        if (subtitle) {
+          await handleDemoSubtitleAsset(req, res, decodeURIComponent(subtitle[1]), subtitle[2]);
           return;
         }
-        if (path.startsWith("subtitle/")) {
-          const [pageId, index] = path.slice("subtitle/".length).split("/").map(decodeURIComponent);
-          await handleDemoSubtitle(req, res, pageId, index);
+        const item = path.match(/^(playlist|album|video|video-stream|cover|video-cover)\/([^/]+)\/?$/);
+        if (item) {
+          const [, kind, pageId] = item.map((value) => value && decodeURIComponent(value));
+          if (kind === "video-stream") await handleDemoMediaAsset(req, res, "video", pageId);
+          else if (kind === "cover" || kind === "video-cover") await handleDemoCoverAsset(req, res, kind === "cover" ? "music" : "video", pageId);
+          else await handleDemoPage(req, res, kind, pageId);
           return;
         }
         next();

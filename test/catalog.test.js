@@ -2,63 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   mapAlbum,
-  mapDemoItem,
-  mapDemoItems,
   mapLibraryTracks,
   mapTracks,
   mapVideo,
+  isPublishedPage,
   pageBelongsToDataSource,
 } from "../functions/server/catalog.js";
 import { parseFlacMetadata } from "../functions/server/flac.js";
 
-test("mapDemoItems exposes only published, valid demo media", () => {
-  const pages = [
-    {
-      id: "private-item",
-      parent: { type: "data_source_id", data_source_id: "demo-source" },
-      properties: {
-        Name: { title: [{ plain_text: "Hidden" }] },
-        Type: { select: { name: "Music" } },
-        Published: { checkbox: false },
-        Media: { files: [{ type: "file", name: "hidden.mp3", file: { url: "https://example.test/hidden.mp3" } }] },
-      },
-    },
-    {
-      id: "video-item",
-      properties: {
-        Name: { title: [{ plain_text: "Demo Clip" }] },
-        Type: { select: { name: "Video" } },
-        Published: { checkbox: true },
-        Media: { files: [{ type: "file", name: "clip.mp4", file: { url: "https://example.test/clip.mp4" } }] },
-        Cover: { files: [{ type: "file", name: "cover.jpg", file: { url: "https://example.test/cover.jpg" } }] },
-      },
-    },
-    {
-      id: "audio-item",
-      properties: {
-        Name: { title: [{ plain_text: "Demo Song" }] },
-        Type: { select: { name: "Music" } },
-        Published: { checkbox: true },
-        Artist: { rich_text: [{ plain_text: "Example Artist" }] },
-        Media: { files: [{ type: "file", name: "song.flac", file: { url: "https://example.test/song.flac" } }] },
-      },
-    },
-  ];
-
-  assert.deepEqual(mapDemoItems(pages).map(({ id, type, title, media, coverUrl }) => ({ id, type, title, media, coverUrl })), [
-    { id: "video-item", type: "video", title: "Demo Clip", media: { name: "clip.mp4", url: "/api/demo/media/video-item" }, coverUrl: "/api/demo/cover/video-item" },
-    { id: "audio-item", type: "music", title: "Demo Song", media: { name: "song.flac", url: "/api/demo/media/audio-item" }, coverUrl: null },
-  ]);
-  assert.equal(mapDemoItem(pages[0]), null);
-  assert.equal(mapDemoItem({
-    id: "missing-name",
-    properties: {
-      Name: { title: [] },
-      Type: { select: { name: "Music" } },
-      Published: { checkbox: true },
-      Media: { files: [{ type: "file", name: "song.mp3", file: { url: "https://example.test/song.mp3" } }] },
-    },
-  }), null);
+test("demo publication gate accepts only an explicit Published checkbox", () => {
+  assert.equal(isPublishedPage({ properties: { Published: { checkbox: true } } }), true);
+  assert.equal(isPublishedPage({ properties: { Published: { checkbox: false } } }), false);
+  assert.equal(isPublishedPage({ properties: {} }), false);
 });
 
 test("mapAlbum reads expected Notion properties", () => {
@@ -82,6 +37,40 @@ test("mapAlbum reads expected Notion properties", () => {
     cover: "https://example.test/cover",
     coverVersion: null,
   });
+});
+
+test("demo album, track, video, and subtitle URLs use the shared catalog model", () => {
+  const album = mapAlbum({
+    id: "demo-album",
+    last_edited_time: "2026-09-23",
+    properties: {
+      Name: { title: [{ plain_text: "Demo Album" }] },
+      Cover: { files: [{ type: "file", file: { url: "https://example.test/cover.jpg" } }] },
+    },
+  }, { demo: true });
+  assert.equal(album.coverUrl, "/api/demo/cover/demo-album");
+
+  const tracks = mapTracks([{
+    id: "track-one",
+    type: "audio",
+    audio: { name: "track.mp3", external: { url: "https://example.test/track.mp3" } },
+  }], { demo: true, albumId: "demo-album" });
+  assert.equal(tracks[0].url, "/api/demo/track/demo-album/track-one");
+  assert.equal(tracks[0].format, "mp3");
+
+  const video = mapVideo({
+    id: "demo-video",
+    last_edited_time: "2026-09-23",
+    properties: {
+      Name: { title: [{ plain_text: "Demo Video" }] },
+      Cover: { files: [{ type: "file", name: "cover.jpg", file: { url: "https://example.test/cover.jpg" } }] },
+      Video: { files: [{ type: "file", name: "demo.mp4", file: { url: "https://example.test/demo.mp4" } }] },
+      Subtitles: { files: [{ type: "file", name: "demo.zh-Hant.vtt", file: { url: "https://example.test/demo.vtt" } }] },
+    },
+  }, { proxyVideo: true, proxySubtitles: true, demo: true, apiPrefix: "/api/demo" });
+  assert.equal(video.video.url, "/api/demo/video-stream/demo-video?v=2026-09-23");
+  assert.equal(video.coverUrl, "/api/demo/video-cover/demo-video");
+  assert.equal(video.subtitles[0].url, "/api/demo/video-subtitle/demo-video/0?v=2026-09-23");
 });
 
 test("mapTracks keeps audio blocks in page order and supports external URLs", () => {
