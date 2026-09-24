@@ -15,7 +15,7 @@ Notion integration token 只存在後端。瀏覽器不會取得 token，也不�
 - **線上 Demo：<https://notion-based-vedio-music-web.web.app/>**
 - **公開原始碼：<https://github.com/jason7773/notion-media-library>**
 
-截至 2026-09-24，公開 repository、MIT License、GitHub Actions CI 與 Firebase Demo 均已上線。本次驗收確認最新版 CI 成功、本機 37 項測試通過、production build 成功，且 Demo 可載入並播放 2 張專輯與 2 部影片。
+截至 2026-09-24，公開 repository、MIT License、GitHub Actions CI 與 Firebase Demo 均已上線。本次驗收確認最新版 CI 成功、本機 37 項測試通過、production build 成功；線上 Demo 目前載入 5 張專輯與 12 部影片（12 部均顯示可播放），並已實際驗證音樂播放。
 
 Demo 不需登入，內容來自獨立的公開 Notion data source，不是私人媒體庫的鏡像。訪客的播放進度、偏好、願望清單與問題回報只留在瀏覽器；私人目錄、管理功能與 Firestore 資料仍需通過邀請及 Google 登入。
 

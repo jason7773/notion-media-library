@@ -14,7 +14,7 @@ never reaches the browser.
 - **Live Demo: <https://notion-based-vedio-music-web.web.app/>**
 - **Public source: <https://github.com/jason7773/notion-media-library>**
 
-As of 2026-09-24, the public repository, MIT license, GitHub Actions CI, and Firebase Demo are online. The current release passed CI, 37 local tests, and a production build; the live Demo was also verified to load and play two albums and two videos.
+As of 2026-09-24, the public repository, MIT license, GitHub Actions CI, and Firebase Demo are online. The current release passed CI, 37 local tests, and a production build; the live Demo currently loads 5 albums and 12 movies (all 12 marked ready), and music playback was verified in the browser.
 
 The Demo requires no sign-in and reads separate public Notion data sources. It is not a mirror of the private library. Guest progress, preferences, wishlist entries, and issue reports stay in the browser; the private catalog, admin tools, and Firestore data still require an invited Google account.
 
